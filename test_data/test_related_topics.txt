@@ -1,0 +1,21 @@
+Fundamentals of Deep Learning
+
+Deep learning is a subfield of machine learning based on artificial neural networks with multiple layers (deep architectures). These networks attempt to learn representations of data by passing input through various layers, each transforming the data into a slightly more abstract representation. Key components include neurons (nodes), connections (weights), and activation functions that introduce non-linearity.
+
+The learning process typically involves feeding the network large amounts of labeled data and adjusting the weights using optimization algorithms like stochastic gradient descent (SGD). Backpropagation is the standard method for calculating the gradients needed to update these weights. The goal is to minimize a loss function that measures the difference between the network's predictions and the actual target values.
+
+--- Section Break ---
+
+Convolutional Neural Networks (CNNs)
+
+Convolutional Neural Networks are a specialized type of deep neural network particularly effective for processing grid-like data, such as images. They utilize convolutional layers that apply learnable filters (kernels) to input data, detecting spatial hierarchies of features like edges, corners, and textures. This shared-weight architecture makes them more efficient than fully connected networks for image tasks.
+
+Pooling layers (e.g., max pooling) are often interspersed with convolutional layers to reduce the spatial dimensions of the feature maps, providing a form of translational invariance and reducing computational cost. Finally, fully connected layers are typically used at the end of the network to perform classification or regression based on the high-level features extracted by the convolutional and pooling layers.
+
+--- Section Break ---
+
+Recurrent Neural Networks (RNNs)
+
+Recurrent Neural Networks are designed to handle sequential data, such as text, speech, or time series. Unlike feedforward networks, RNNs have connections that loop back, allowing information from previous steps in the sequence to persist and influence the processing of current steps. This internal memory makes them suitable for tasks involving context and order.
+
+Standard RNNs can struggle with learning long-range dependencies due to the vanishing gradient problem. Variants like Long Short-Term Memory (LSTM) and Gated Recurrent Units (GRUs) were developed to address this issue. They incorporate gating mechanisms that control the flow of information, allowing the network to selectively remember or forget information over longer sequences, enabling applications like machine translation and text generation. 

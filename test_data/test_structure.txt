@@ -1,0 +1,20 @@
+
+This is an introductory paragraph. It sets the scene but does not belong to a chapter according to our simple parser. It discusses general concepts.
+
+This second intro paragraph continues the theme. Still no chapter heading.
+
+CHAPTER 1
+This is the first sentence of chapter one. It's about topic A, let's say apples. Apples are red or green.
+This is the second sentence of chapter one, continuing the apple theme. They grow on trees.
+
+This is the third sentence, still in chapter one. Some apples are sour.
+
+CHAPTER 2
+Now we begin chapter two. This chapter is distinctly about topic B, perhaps bananas. Bananas are yellow.
+They have a peel. This is the second sentence of chapter two.
+
+Monkeys enjoy bananas. This is the third sentence, still chapter two.
+
+CHAPTER 3
+Finally, chapter three starts. It discusses topic C, maybe cherries. Cherries are small and red.
+They often come in pairs. This is the second sentence.

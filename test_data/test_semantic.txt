@@ -1,0 +1,5 @@
+The process of photosynthesis allows plants to convert light energy into chemical energy. Chlorophyll within the chloroplasts absorbs sunlight, primarily blue and red wavelengths. Water is absorbed through the roots, providing electrons and protons. Carbon dioxide enters through stomata on the leaves.
+
+This stored chemical energy, often in the form of glucose, fuels the plant's growth and metabolic activities. Oxygen is released as a byproduct of this complex biochemical reaction. Photosynthesis forms the base of most food chains on Earth, making it essential for life as we know it.
+
+Cellular respiration, conversely, is how organisms break down glucose to release energy for cellular work. It occurs in the mitochondria of eukaryotic cells. This process requires oxygen and releases carbon dioxide and water as waste products. It involves stages like glycolysis, the Krebs cycle, and the electron transport chain. ATP is the main energy currency produced.
