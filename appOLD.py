@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 import streamlit as st
 import numpy as np
 import os
@@ -67,7 +66,8 @@ def initialize_session_state():
         'scatter_fig_2d': None,
         'current_coords_2d': None,
         'current_labels': [],
-        'coords_3d': None,
+        'coords_3d': None, # Added missing init
+        # Removed duplicate initializations below
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -76,25 +76,25 @@ def initialize_session_state():
 initialize_session_state()
 
 # --- Helper Functions ---
+# get_all_embeddings() removed as it's likely superseded by stored matrices
+
 def reset_derived_data(clear_docs=False):
     """Clears embeddings, chunks, derived data. Optionally clears documents too."""
     if clear_docs:
         st.session_state.documents = []
     else:
-        # Only clear derived data from docs if keeping them
         for doc in st.session_state.documents:
             doc.embedding = None
             if hasattr(doc, 'chunks'):
                 doc.chunks = []
 
-    # Reset all derived state regardless
     st.session_state.embeddings_generated = False
     st.session_state.coords_2d = None
     st.session_state.coords_3d = None
     st.session_state.all_chunk_embeddings_matrix = None
     st.session_state.all_chunk_labels = []
-    st.session_state.chunk_label_lookup_dict = {}
-    st.session_state.analysis_level = 'Documents' # Default level
+    st.session_state.chunk_label_lookup_dict = {} # Clear lookup dict too
+    st.session_state.analysis_level = 'Documents'
     st.session_state.scatter_fig_2d = None
     st.session_state.current_coords_2d = None
     st.session_state.current_labels = []
@@ -180,35 +180,41 @@ if st.sidebar.button("Chunk Loaded Documents", disabled=not chunker):
     if chunker and st.session_state.documents:
         updated_documents = []
         error_occurred = False
-        # --- Main Try Block for Chunking ---
-        try: # <--- Indent Level 1
+        try:
             with st.spinner("Chunking documents..."):
                 for doc in st.session_state.documents:
-                    try: # <-- Indent Level 2 (Inner Try)
+                    try:
                         if not hasattr(doc, 'chunks'): doc.chunks = []
                         doc.chunks = chunker.chunk_document(doc)
                         updated_documents.append(doc)
-                    except Exception as e: # <-- Indent Level 2 (Matches Inner Try)
+                    except Exception as e:
                          st.sidebar.error(f"Error chunking doc '{doc.title}': {e}")
                          updated_documents.append(doc) # Keep original doc on error
                          error_occurred = True
 
-            st.session_state.documents = updated_documents # Update state inside try
+            st.session_state.documents = updated_documents
             msg = f"Chunking complete for {len(st.session_state.documents)} documents."
             if error_occurred:
                 st.sidebar.warning(msg + " (with errors)")
             else:
                 st.sidebar.success(msg)
 
-        except Exception as e: # <--- Indent Level 1 (Matches Outer Try)
+        except Exception as e:
             st.sidebar.error(f"An unexpected error occurred during chunking: {e}")
-            error_occurred = True # Ensure error is flagged if outer try fails
 
-            # Reset state and rerun AFTER try/except finishes
-            # Only reset embeddings if chunking didn't completely fail
-            if not error_occurred or updated_documents: # Avoid reset if initial error prevented any updates
-                 reset_derived_data(clear_docs=False)
-            st.rerun()
+        # --- Code AFTER try...except block ---
+
+        # --- START DEBUG CHUNKING ---
+        st.sidebar.write("--- DEBUG CHUNKING ---")
+        for i_debug, doc_debug in enumerate(st.session_state.documents):
+            chunk_count_debug = len(doc_debug.chunks) if hasattr(doc_debug, 'chunks') and doc_debug.chunks is not None else 0
+            st.sidebar.write(f"Doc {i_debug+1} ('{doc_debug.title[:20]}...'): {chunk_count_debug} chunks found.")
+        st.sidebar.write("--- END DEBUG ---")
+        # --- END DEBUG CHUNKING ---
+
+        # Reset state and rerun AFTER try/except finishes
+        reset_derived_data(clear_docs=False) # Reset embeddings/matrices after chunking attempt
+        st.rerun() # Rerun regardless of chunking success/failure
 
     elif not chunker:
          st.sidebar.error("Chunking Service not available.")
@@ -226,11 +232,14 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                 updated_documents = list(st.session_state.documents) # Work on a copy
 
                 for i, doc in enumerate(updated_documents):
+                    doc_updated = False
                     # 1. Process Document Embedding
                     if doc.embedding is None:
                         try:
                             doc.embedding = embedding_service.generate_embedding(doc.content)
-                            if doc.embedding is not None: docs_processed_count += 1
+                            if doc.embedding is not None:
+                                docs_processed_count += 1
+                                doc_updated = True
                         except Exception as e:
                             st.sidebar.error(f"Error embedding doc '{doc.title}': {e}")
                             error_occurred = True
@@ -241,7 +250,9 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                             if chunk.embedding is None:
                                 try:
                                     chunk.embedding = embedding_service.generate_embedding(chunk.content)
-                                    if chunk.embedding is not None: chunks_processed_count += 1
+                                    if chunk.embedding is not None:
+                                        chunks_processed_count += 1
+                                        doc_updated = True # Mark doc as updated if any chunk was processed
                                 except Exception as e:
                                     st.sidebar.error(f"Error embedding chunk {j+1} in doc '{doc.title}': {e}")
                                     error_occurred = True
@@ -260,7 +271,6 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                          for i, chunk in enumerate(doc.chunks):
                              if chunk.embedding is not None:
                                  all_chunk_embeddings_list.append(chunk.embedding)
-                                 # Use consistent, descriptive label format
                                  label = f"{doc.title} :: Chunk {i+1} ({chunk.context_label})"
                                  all_chunk_labels_list.append(label)
                                  chunk_label_to_object_lookup[label] = chunk
@@ -279,7 +289,6 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                      st.session_state.pop('chunk_label_lookup_dict', None)
                      error_occurred = True
             else:
-                # Clear potentially stale state if no embeddings found this time
                 st.session_state.pop('all_chunk_embeddings_matrix', None)
                 st.session_state.pop('all_chunk_labels', None)
                 st.session_state.pop('chunk_label_lookup_dict', None)
@@ -289,7 +298,7 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
             docs_have_embeddings = any(doc.embedding is not None for doc in st.session_state.documents)
             chunks_have_embeddings = ('all_chunk_embeddings_matrix' in st.session_state and
                                       st.session_state['all_chunk_embeddings_matrix'] is not None and
-                                      st.session_state['all_chunk_embeddings_matrix'].shape[0] > 0)
+                                      st.session_state['all_chunk_embeddings_matrix'].shape[0] > 0) # Check shape too
             st.session_state.embeddings_generated = docs_have_embeddings or chunks_have_embeddings
 
             # Clear previous plot data as embeddings changed
@@ -324,109 +333,108 @@ if st.session_state.get('embeddings_generated'):
         items_available_for_level = sum(1 for doc in st.session_state.documents if doc.embedding is not None)
         if items_available_for_level >= MIN_ITEMS_FOR_PLOT:
             embeddings_exist = True # Enough docs with embeddings for plotting
-        if items_available_for_level >= 1: # Need at least 1 for analysis
+        if items_available_for_level >= 1: # Need at least 1 for KNN query, 2 for KNN results
              can_analyze = True
     elif analysis_level == 'Chunks':
-        # Check the matrix directly
-        chunk_matrix = st.session_state.get('all_chunk_embeddings_matrix')
-        if chunk_matrix is not None and chunk_matrix.shape[0] > 0:
-             items_available_for_level = chunk_matrix.shape[0]
-             embeddings_exist = True # Embeddings generated if matrix exists and is not empty
-             can_analyze = True
+        if st.session_state.get('all_chunk_embeddings_matrix') is not None:
+             items_available_for_level = st.session_state['all_chunk_embeddings_matrix'].shape[0]
+             if items_available_for_level >= 1: # Need at least 1 chunk for plotting/analysis
+                 embeddings_exist = True
+                 can_analyze = True
 
 # --- Visualization Section ---
 st.header("Embedding Space Visualization")
 if not embeddings_exist:
     if analysis_level == 'Documents':
-        st.warning(f"Generate embeddings. Document plotting requires >= {MIN_ITEMS_FOR_PLOT} docs with embeddings.")
+        st.warning(f"Please generate embeddings. Document level plotting requires at least {MIN_ITEMS_FOR_PLOT} documents with embeddings.")
     else: # Chunks
-        st.warning("Generate embeddings for chunks.")
+        st.warning(f"Please generate embeddings for chunks.")
 elif not analysis_service or not visualization_service:
     st.error("Analysis or Visualization Service not available.")
 else:
     col1, col2 = st.columns(2)
-    plot_title_suffix = analysis_level
+    plot_title_suffix = analysis_level # "Documents" or "Chunks"
 
     # --- Get Embeddings/Labels for Plotting ---
+    # These are the full sets based on the level, filtering happens in buttons if needed
     embeddings_to_plot = None
     labels_to_plot = []
-    source_doc_titles_for_plot = None
+    source_doc_titles_for_plot = None # For chunk coloring
 
     if analysis_level == 'Documents':
-        # Only consider docs with embeddings for plotting
         docs_with_embeddings = [doc for doc in st.session_state.documents if doc.embedding is not None]
-        if len(docs_with_embeddings) >= MIN_ITEMS_FOR_PLOT:
+        if len(docs_with_embeddings) > 0:
              embeddings_to_plot = np.array([doc.embedding for doc in docs_with_embeddings])
              labels_to_plot = [doc.title for doc in docs_with_embeddings]
-        # else: plotting buttons will be disabled
     elif analysis_level == 'Chunks':
         embeddings_to_plot = st.session_state.get('all_chunk_embeddings_matrix')
         labels_to_plot = st.session_state.get('all_chunk_labels', [])
         if labels_to_plot:
-            # Derive color data from labels stored in session state
-            try:
-                source_doc_titles_for_plot = [label.split(' :: ')[0] for label in labels_to_plot]
-            except Exception as e:
-                 st.error(f"Error parsing document titles from chunk labels: {e}")
-                 source_doc_titles_for_plot = None # Fallback
+            source_doc_titles_for_plot = [label.split(' :: ')[0] for label in labels_to_plot]
 
     # --- Plotting Buttons ---
-    # Ensure we have data before enabling buttons
-    can_plot_now = embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (MIN_ITEMS_FOR_PLOT if analysis_level == 'Documents' else 1)
+    if embeddings_to_plot is not None and embeddings_to_plot.shape[0] > 0:
+        with col1:
+            # Disable button if not enough docs for document level plot
+            disable_2d_doc_plot = (analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT)
+            if st.button("Show 2D Plot", disabled=disable_2d_doc_plot):
+                st.session_state.scatter_fig_2d = None # Clear previous figure/selection
+                st.session_state.current_coords_2d = None
+                st.session_state.current_labels = []
+                try:
+                    with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 2D..."):
+                        coords_2d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=2)
+                    if coords_2d is not None:
+                        st.session_state.current_coords_2d = coords_2d
+                        st.session_state.current_labels = labels_to_plot # Store labels used for this plot
 
-    with col1:
-        if st.button("Show 2D Plot", disabled=not can_plot_now):
-            st.session_state.scatter_fig_2d = None
-            st.session_state.current_coords_2d = None
-            st.session_state.current_labels = []
-            try:
-                with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 2D..."):
-                    coords_2d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=2)
-                if coords_2d is not None:
-                    st.session_state.current_coords_2d = coords_2d
-                    st.session_state.current_labels = labels_to_plot
+                        color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
 
-                    color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
-                    fig_2d = visualization_service.plot_scatter_2d(
-                        coords=coords_2d, labels=labels_to_plot,
-                        title=f"2D UMAP Projection of {plot_title_suffix}", color_data=color_arg
-                    )
-                    st.session_state.scatter_fig_2d = fig_2d
-                else:
-                    st.error("Failed to generate 2D coordinates.")
-            except Exception as e:
-                st.error(f"Error generating 2D plot: {e}")
+                        fig_2d = visualization_service.plot_scatter_2d(
+                            coords=coords_2d, labels=labels_to_plot,
+                            title=f"2D UMAP Projection of {plot_title_suffix}",
+                            color_data=color_arg
+                        )
+                        st.session_state.scatter_fig_2d = fig_2d
+                    else:
+                        st.error("Failed to generate 2D coordinates.")
+                except Exception as e:
+                    st.error(f"Error generating 2D plot: {e}")
 
-    with col2:
-        if st.button("Show 3D Plot", disabled=not can_plot_now):
-            st.session_state.scatter_fig_2d = None # Clear 2D plot state
-            st.session_state.current_coords_2d = None
-            st.session_state.current_labels = []
-            try:
-                with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 3D..."):
-                    coords_3d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=3)
-                if coords_3d is not None:
-                    color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
-                    fig_3d = visualization_service.plot_scatter_3d(
-                        coords=coords_3d, labels=labels_to_plot,
-                        title=f"3D UMAP Projection of {plot_title_suffix}"
-                        # Add color_arg if plot_scatter_3d supports it
-                    )
-                    st.plotly_chart(fig_3d, use_container_width=True)
-                else:
-                    st.error("Failed to generate 3D coordinates.")
-            except Exception as e:
-                st.error(f"Error generating 3D plot: {e}")
+        with col2:
+            disable_3d_doc_plot = (analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT)
+            if st.button("Show 3D Plot", disabled=disable_3d_doc_plot):
+                st.session_state.scatter_fig_2d = None # Clear 2D plot state
+                st.session_state.current_coords_2d = None
+                st.session_state.current_labels = []
+                try:
+                    with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 3D..."):
+                        coords_3d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=3)
+                    if coords_3d is not None:
+                        color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
+                        fig_3d = visualization_service.plot_scatter_3d(
+                            coords=coords_3d, labels=labels_to_plot,
+                            title=f"3D UMAP Projection of {plot_title_suffix}"
+                            # Pass color_arg if plot_scatter_3d supports it
+                        )
+                        st.plotly_chart(fig_3d, use_container_width=True)
+                    else:
+                        st.error("Failed to generate 3D coordinates.")
+                except Exception as e:
+                    st.error(f"Error generating 3D plot: {e}")
+    else:
+        st.info("No embeddings available to generate plots for the selected level.")
 
     # --- Display 2D Plot and Handle Selection (Semantic Center) ---
     if st.session_state.get('scatter_fig_2d') is not None:
          event_data = st.plotly_chart(
-             st.session_state.scatter_fig_2d, use_container_width=True,
-             on_select="rerun", key="umap_scatter_2d"
+             st.session_state.scatter_fig_2d,
+             use_container_width=True,
+             on_select="rerun",
+             key="umap_scatter_2d"
          )
 
          selection = None
-         # Check for selection event data using the chart key
          if event_data and event_data.get("selection") and event_data["selection"].get("point_indices"):
              selected_indices = event_data["selection"]["point_indices"]
              if selected_indices:
@@ -436,7 +444,9 @@ else:
          if selection and len(selection['indices']) == 3:
              st.subheader("Triangle Analysis (Plot Selection)")
              selected_indices_from_plot = selection['indices']
-             current_plot_labels = st.session_state.get('current_labels', []) # Labels shown on the plot
+
+             # Use labels stored when the plot was created
+             current_plot_labels = st.session_state.get('current_labels', [])
 
              if current_plot_labels and all(idx < len(current_plot_labels) for idx in selected_indices_from_plot):
                  selected_labels_display = [current_plot_labels[i] for i in selected_indices_from_plot]
@@ -446,62 +456,60 @@ else:
 
                  try:
                      # --- Get High-Dim Data for Analysis ---
-                     selected_high_dim_embeddings = [] # Use list for flexibility
+                     selected_high_dim_embeddings = None # Initialize to handle potential assignment failure
                      high_dim_corpus_matrix = None
                      high_dim_corpus_labels = []
+                     lookup_dict = {}
 
                      if analysis_level == 'Documents':
+                         # Need to find the original documents corresponding to the plot labels
                          docs_map = {doc.title: doc for doc in st.session_state.documents if doc.embedding is not None}
                          selected_docs = [docs_map.get(lbl) for lbl in selected_labels_display]
-                         if None in selected_docs or any(doc.embedding is None for doc in selected_docs):
-                             st.error("Could not map all selected plot labels back to documents with embeddings.")
+                         if None in selected_docs:
+                              st.error("Could not map plot labels back to document objects.")
                          else:
-                             selected_high_dim_embeddings = [doc.embedding for doc in selected_docs]
-                             all_docs_with_embeddings = list(docs_map.values())
-                             high_dim_corpus_matrix = np.array([doc.embedding for doc in all_docs_with_embeddings])
-                             high_dim_corpus_labels = [doc.title for doc in all_docs_with_embeddings]
+                              selected_high_dim_embeddings = [doc.embedding for doc in selected_docs]
+                              # Corpus is all docs with embeddings
+                              all_docs_with_embeddings = list(docs_map.values())
+                              high_dim_corpus_matrix = np.array([doc.embedding for doc in all_docs_with_embeddings])
+                              high_dim_corpus_labels = [doc.title for doc in all_docs_with_embeddings]
 
                      elif analysis_level == 'Chunks':
                          high_dim_corpus_matrix = st.session_state.get('all_chunk_embeddings_matrix')
                          high_dim_corpus_labels = st.session_state.get('all_chunk_labels', [])
-                         # Assumes the plot indices directly correspond to the matrix rows
+                         lookup_dict = st.session_state.get('chunk_label_lookup_dict', {})
+                         # Map plot indices to high-dim matrix indices - assumes plot used all_chunk_labels directly
+                         # If the plot was potentially filtered, this mapping needs adjustment
                          if high_dim_corpus_matrix is not None and all(idx < high_dim_corpus_matrix.shape[0] for idx in selected_indices_from_plot):
-                             selected_high_dim_embeddings = high_dim_corpus_matrix[selected_indices_from_plot].tolist() # Ensure list
+                              selected_high_dim_embeddings = high_dim_corpus_matrix[selected_indices_from_plot]
                          else:
-                             st.error("Mismatch between plot indices and chunk embedding matrix.")
-                             selected_high_dim_embeddings = [] # Mark as invalid
+                              st.error("Mismatch between plot indices and chunk embedding matrix.")
+                              selected_high_dim_embeddings = None # Prevent further processing
 
                      # --- Proceed if embeddings found ---
-                     if len(selected_high_dim_embeddings) == 3 and high_dim_corpus_matrix is not None and high_dim_corpus_labels:
-                         try:
-                             mean_high_dim_emb = np.mean(np.array(selected_high_dim_embeddings), axis=0)
-                             nn_indices, nn_scores = analysis_service.find_k_nearest(
-                                 mean_high_dim_emb, high_dim_corpus_matrix, k=1
-                             )
+                     if selected_high_dim_embeddings is not None and high_dim_corpus_matrix is not None and high_dim_corpus_labels:
+                          # Calculate mean embedding
+                          mean_high_dim_emb = np.mean(np.array(selected_high_dim_embeddings), axis=0)
 
-                             if nn_indices is not None and len(nn_indices) > 0:
-                                 nearest_neighbor_index = nn_indices[0]
-                                 # Check index bounds for safety
-                                 if nearest_neighbor_index < len(high_dim_corpus_labels):
-                                     nearest_neighbor_label = high_dim_corpus_labels[nearest_neighbor_index]
-                                     nearest_neighbor_score = nn_scores[0]
-                                     st.write(f"**Semantic Center:** Closest item is **{nearest_neighbor_label}**")
-                                     st.write(f"(Similarity Score: {nearest_neighbor_score:.4f})")
-                                 else:
-                                     st.error("Nearest neighbor index out of bounds!")
-                             else:
-                                 st.warning("Could not determine the nearest item to the semantic center.")
-                         except Exception as analysis_err:
-                              st.error(f"Error calculating semantic center: {analysis_err}")
+                          # Find Nearest Neighbor in the high-dim corpus
+                          nn_indices, nn_scores = analysis_service.find_k_nearest(
+                              mean_high_dim_emb, high_dim_corpus_matrix, k=1
+                          )
+
+                          if nn_indices is not None and len(nn_indices) > 0:
+                              nearest_neighbor_index = nn_indices[0]
+                              nearest_neighbor_label = high_dim_corpus_labels[nearest_neighbor_index]
+                              nearest_neighbor_score = nn_scores[0]
+                              st.write(f"**Semantic Center:** Closest item is **{nearest_neighbor_label}**")
+                              st.write(f"(Similarity Score: {nearest_neighbor_score:.4f})")
+                          else:
+                              # Corrected indentation for the else block
+                              st.warning("Could not determine the nearest item to the semantic center.")
                      else:
-                         # Error message already displayed or handled above
-                         if not selected_high_dim_embeddings:
-                              st.warning("Could not retrieve embeddings for selected points.")
-                         elif high_dim_corpus_matrix is None or not high_dim_corpus_labels:
-                              st.warning("Corpus embeddings unavailable for analysis.")
+                          st.warning("Could not retrieve necessary embeddings for semantic center analysis.")
 
                  except Exception as e:
-                     st.error(f"Error during plot selection analysis setup: {e}")
+                     st.error(f"Error during semantic center analysis: {e}")
              else:
                  st.warning("Selection indices out of bounds or plot labels mismatch.")
          elif selection:
@@ -513,114 +521,98 @@ with st.expander("View Document/Chunk Structure & Select Chunks for Analysis"):
     if not st.session_state.documents:
         st.write("No documents loaded.")
     else:
-        # Check if chunking appears to have run and produced *some* chunks
-        # Best check is the presence of chunk labels in session state AFTER embedding
-        chunk_labels_exist = 'all_chunk_labels' in st.session_state and st.session_state['all_chunk_labels']
+        # --- Build Table Data --- (Logic to build table_data remains the same)
+        table_data = []
+        max_chunks = 0
+        docs_have_chunks_attr = any(hasattr(doc, 'chunks') for doc in st.session_state.documents)
 
-        if not chunk_labels_exist:
-             # Check if chunking attribute exists but maybe embedding hasn't run yet
-             docs_have_chunks_attr = any(hasattr(doc, 'chunks') for doc in st.session_state.documents)
-             if docs_have_chunks_attr:
-                 st.info("Chunking run, but embeddings not generated yet (or no embeddings found). Click 'Generate Embeddings'.")
-             else:
-                  st.info("Run 'Chunk Loaded Documents' first.")
-        else: # Chunk labels exist in session state - proceed to display table & multiselect
-            # --- Build and Display Table --- (Only if chunk labels exist)
-            table_data = []
-            max_chunks = 0
-            # Build based on actual docs and their chunks attribute
+        if docs_have_chunks_attr:
             for doc in st.session_state.documents:
-                 if hasattr(doc, 'chunks') and doc.chunks:
-                      max_chunks = max(max_chunks, len(doc.chunks))
+               if hasattr(doc, 'chunks') and doc.chunks:
+                    max_chunks = max(max_chunks, len(doc.chunks))
 
-            if max_chunks > 0: # Ensure we actually have chunks to build the table rows
-                for doc in st.session_state.documents:
-                    row_data = {'Document': doc.title}
-                    if hasattr(doc, 'chunks') and doc.chunks:
-                         for i in range(max_chunks):
-                             col_name = f"Chunk {i+1}"
-                             # Check chunk exists at index i before accessing attribute
-                             row_data[col_name] = doc.chunks[i].context_label if i < len(doc.chunks) and doc.chunks[i] else ""
-                    else: # Handle docs without chunks attribute or empty chunks list
-                         for i in range(max_chunks): row_data[f"Chunk {i+1}"] = "-" # Placeholder
-                    table_data.append(row_data)
-            # Else: max_chunks is 0 even though labels exist? Data inconsistency - table won't be built.
+        if not docs_have_chunks_attr:
+           st.info("Run 'Chunk Loaded Documents' first.")
+        elif max_chunks == 0:
+           st.info("Chunking resulted in 0 chunks.")
+        else:
+            # Build the actual table data rows
+            for doc in st.session_state.documents:
+                row_data = {'Document': doc.title}
+                if hasattr(doc, 'chunks') and doc.chunks:
+                    for i in range(max_chunks):
+                        col_name = f"Chunk {i+1}"
+                        row_data[col_name] = doc.chunks[i].context_label if i < len(doc.chunks) else ""
+                else:
+                   for i in range(max_chunks): row_data[f"Chunk {i+1}"] = "-"
+                table_data.append(row_data)
 
-            # Display table if data was successfully built
+            # --- Display Table and then Multiselect --- (If table_data was built)
             if table_data:
+                # --- Step 1: Display Table --- (Separate Try/Except)
                 try:
                     df = pd.DataFrame(table_data).set_index('Document')
                     st.write("Chunk Overview (Context Labels shown):")
                     st.dataframe(df)
                 except Exception as e:
                      st.error(f"Error creating structure table: {e}")
-            elif max_chunks == 0:
-                # This case means chunk_labels exist, but no docs actually had > 0 chunks
-                st.info("Chunking process resulted in 0 chunks across all documents (although labels might exist from a previous run). Re-chunk if needed.")
+
+                # --- Step 2: Display Multiselect Logic (AFTER table display attempt) ---
+                # This block is now outside the table try/except, but still inside `if table_data:`
+                chunk_selection_options = st.session_state.get('all_chunk_labels', [])
+                lookup = st.session_state.get('chunk_label_lookup_dict', {})
+
+                if chunk_selection_options:
+                    st.markdown("---")
+                    st.subheader("Select 3 Chunks for Table-Based Analysis:")
+                    selected_chunk_labels = st.multiselect(
+                        label="Select exactly 3 chunks from the list below:",
+                        options=chunk_selection_options, key="chunk_multiselect"
+                    )
+
+                    if st.button("Analyze Table Selection", key="analyze_table_button"):
+                        if len(selected_chunk_labels) == 3:
+                            st.write("**Analyzing Selection from Table:**")
+                            for label in selected_chunk_labels: st.write(f"- {label}")
+                            try:
+                                selected_chunks = [lookup.get(label) for label in selected_chunk_labels]
+                                if None in selected_chunks:
+                                   st.error("Could not find data for one or more selected chunk labels.")
+                                else:
+                                    selected_embeddings = [chunk.embedding for chunk in selected_chunks]
+                                    if all(emb is not None for emb in selected_embeddings):
+                                        mean_high_dim_emb = np.mean(np.array(selected_embeddings), axis=0)
+                                        corpus_embeddings_array = st.session_state.get('all_chunk_embeddings_matrix')
+                                        corpus_labels = st.session_state.get('all_chunk_labels', [])
+
+                                        if corpus_embeddings_array is None or not corpus_labels:
+                                           st.error("Chunk corpus unavailable for KNN search.")
+                                        elif corpus_embeddings_array.ndim == 2 and corpus_embeddings_array.shape[0] > 0:
+                                           indices, scores = analysis_service.find_k_nearest(mean_high_dim_emb, corpus_embeddings_array, k=1)
+                                           if indices is not None and len(indices) > 0:
+                                               nearest_neighbor_index = indices[0]
+                                               nearest_neighbor_label = corpus_labels[nearest_neighbor_index]
+                                               nearest_neighbor_score = scores[0]
+                                               st.write(f"**Semantic Center:** Closest item is **{nearest_neighbor_label}**")
+                                               st.write(f"(Similarity Score: {nearest_neighbor_score:.4f})")
+                                           else:
+                                               st.warning("Could not determine the nearest item to the semantic center.")
+                                        else:
+                                           st.error("Invalid corpus created for KNN search.")
+                                    else:
+                                       st.error("One or more selected chunks lack embeddings.")
+                            except Exception as e:
+                                st.error(f"An error occurred during table selection analysis: {e}")
+                        else:
+                            st.error(f"Please select exactly 3 chunks (you selected {len(selected_chunk_labels)}).")
+                else:
+                    st.info("No chunks with embeddings available for table analysis selection.")
+
+            # --- Else for `if table_data:` (Correctly aligned) ---
             else:
-                 # This case might indicate an issue if max_chunks > 0 but table_data is empty
-                 st.warning("Chunk labels found, but failed to build table data from document chunks.")
+                # This executes if the table_data list ended up empty after the build logic
+                st.write("No table data generated (table_data list was empty).")
 
-
-            # --- Multiselect Logic (Only if chunk_labels_exist) --- 
-            # This code runs regardless of whether the table displayed, as long as chunk_labels_exist was true
-            chunk_selection_options = st.session_state.get('all_chunk_labels', []) # Already confirmed this exists
-            lookup = st.session_state.get('chunk_label_lookup_dict', {})
-
-            st.markdown("---")
-            st.subheader("Select 3 Chunks for Table-Based Analysis:")
-            selected_chunk_labels = st.multiselect(
-                label="Select exactly 3 chunks from the list below:",
-                options=chunk_selection_options, key="chunk_multiselect"
-            )
-
-            if st.button("Analyze Table Selection", key="analyze_table_button"):
-                # Keep existing analysis logic for the button
-                if len(selected_chunk_labels) == 3:
-                     st.write("**Analyzing Selection from Table:**") # Add confirmation
-                     for label in selected_chunk_labels: st.write(f"- {label}")
-                     # --- Analysis Logic --- (Assumes previous corrections were okay)
-                     try: # <-- Add try/except around analysis
-                          selected_chunks = [lookup.get(label) for label in selected_chunk_labels]
-
-                          if None in selected_chunks: # <-- Level A
-                               st.error("Could not find data for one or more selected chunk labels.")
-                          else: # <-- Level A (Matches 'if None in selected_chunks:')
-                              selected_embeddings = [chunk.embedding for chunk in selected_chunks]
-
-                              # Check if all embeddings are valid
-                              if all(emb is not None for emb in selected_embeddings): # <-- Level B
-                                  mean_high_dim_emb = np.mean(np.array(selected_embeddings), axis=0)
-                                  corpus_embeddings_array = st.session_state.get('all_chunk_embeddings_matrix')
-                                  corpus_labels = st.session_state.get('all_chunk_labels', [])
-
-                                  # Check 1: Corpus valid?
-                                  if corpus_embeddings_array is None or not corpus_labels: # <-- Level C
-                                     st.error("Chunk corpus unavailable for KNN search.")
-                                  # Check 2: Corpus usable for KNN?
-                                  elif corpus_embeddings_array.ndim == 2 and corpus_embeddings_array.shape[0] > 0: # <-- Level C
-                                     indices, scores = analysis_service.find_k_nearest(mean_high_dim_emb, corpus_embeddings_array, k=1)
-                                     if indices is not None and len(indices) > 0: # <-- Level D
-                                         nearest_neighbor_index = indices[0]
-                                         if nearest_neighbor_index < len(corpus_labels): # Bounds check
-                                              nearest_neighbor_label = corpus_labels[nearest_neighbor_index]
-                                              nearest_neighbor_score = scores[0]
-                                              st.write(f"**Semantic Center:** Closest item is **{nearest_neighbor_label}**")
-                                              st.write(f"(Similarity Score: {nearest_neighbor_score:.4f})")
-                                         else:
-                                             st.error("Nearest neighbor index out of bounds.")
-                                     else: # <-- Level D
-                                         st.warning("Could not determine the nearest item to the semantic center.")
-                                  # Else for Checks 1 & 2
-                                  else: # <-- Level C
-                                     st.error("Invalid corpus created for KNN search.")
-                              # Else for `if all(emb is not None...)`
-                              else: # <-- Level B
-                                 st.error("One or more selected chunks lack embeddings.")
-                     except Exception as e: # Catch analysis errors
-                           st.error(f"An error occurred during table selection analysis: {e}")
-                else: # Belongs to if len == 3
-                     st.error(f"Please select exactly 3 chunks (you selected {len(selected_chunk_labels)}).")
 
 # --- Manual Simplex Analysis Section ---
 st.header("Manual Simplex Analysis")
@@ -629,6 +621,7 @@ item_map = {}
 current_level = st.session_state.get('analysis_level', 'Documents')
 
 if current_level == 'Documents':
+    # Filter docs with embeddings
     docs_with_embed = [doc for doc in st.session_state.documents if doc.embedding is not None]
     item_options = [doc.title for doc in docs_with_embed]
     item_map = {doc.title: doc for doc in docs_with_embed}
@@ -654,8 +647,7 @@ else:
                 valid_embeddings = True
                 for label in selected_labels:
                     item = item_map.get(label)
-                    # Check embedding attribute exists and is not None
-                    if item and hasattr(item, 'embedding') and item.embedding is not None:
+                    if item and hasattr(item, 'embedding') and item.embedding is not None: # Check attribute exists
                         selected_embeddings.append(item.embedding)
                     else:
                         st.error(f"Could not find item or embedding for: '{label}'")
@@ -667,41 +659,39 @@ else:
                     corpus_labels = []
 
                     if current_level == 'Documents':
-                         corpus_items = list(item_map.values()) # Already filtered for embeddings
+                         # Rebuild from item_map which already contains only items with embeddings
+                         corpus_items = list(item_map.values())
                          corpus_embeddings_array = np.array([item.embedding for item in corpus_items])
                          corpus_labels = list(item_map.keys())
                     elif current_level == 'Chunks':
                          corpus_embeddings_array = st.session_state.get('all_chunk_embeddings_matrix')
                          corpus_labels = st.session_state.get('all_chunk_labels', [])
 
-                    # Check corpus validity AFTER retrieving it
                     if corpus_embeddings_array is None or not corpus_labels:
                         st.error("Corpus for KNN search unavailable.")
-                    elif corpus_embeddings_array.ndim != 2 or corpus_embeddings_array.shape[0] == 0:
-                        st.error("Invalid corpus for KNN search (empty or wrong dimensions).")
-                    else: # Corpus is valid
+                    elif corpus_embeddings_array.ndim == 2 and corpus_embeddings_array.shape[0] > 0:
                          indices, scores = analysis_service.find_k_nearest(mean_high_dim_emb, corpus_embeddings_array, k=1)
                          if indices is not None and len(indices) > 0:
                               nearest_neighbor_index = indices[0]
-                              if nearest_neighbor_index < len(corpus_labels): # Bounds check
-                                 nearest_neighbor_label = corpus_labels[nearest_neighbor_index]
-                                 nearest_neighbor_score = scores[0]
-                                 st.write("**Manual Selection Analysis Results:**")
-                                 st.write(f"- Vertex 1: {item1_label}\n- Vertex 2: {item2_label}\n- Vertex 3: {item3_label}")
-                                 st.write(f"**Semantic Center:** Closest item is **{nearest_neighbor_label}**")
-                                 st.write(f"(Similarity Score: {nearest_neighbor_score:.4f})")
-                              else:
-                                 st.error("Nearest neighbor index out of bounds.")
+                              nearest_neighbor_label = corpus_labels[nearest_neighbor_index]
+                              nearest_neighbor_score = scores[0]
+                              st.write("**Manual Selection Analysis Results:**")
+                              st.write(f"- Vertex 1: {item1_label}\n- Vertex 2: {item2_label}\n- Vertex 3: {item3_label}")
+                              st.write(f"**Semantic Center:** Closest item is **{nearest_neighbor_label}**")
+                              st.write(f"(Similarity Score: {nearest_neighbor_score:.4f})")
                          else:
+                              # Corrected indentation for the else block
                               st.warning("Could not determine the nearest item to the semantic center.")
+                    else:
+                         st.error("Invalid corpus for KNN search.")
             except Exception as e:
                  st.error(f"An error occurred during manual analysis: {e}")
 
 
 # --- Nearest Neighbors Analysis Section ---
 st.header("Nearest Neighbors Analysis")
-if not can_analyze:
-    st.warning(f"Generate embeddings for at least 1 {analysis_level.lower()} first for KNN.")
+if not can_analyze: # Use the flag determined earlier
+    st.warning(f"Generate embeddings for at least 1 {analysis_level.lower()} first to perform nearest neighbor analysis.")
 elif not analysis_service:
      st.error("Analysis Service not available.")
 else:
@@ -711,84 +701,78 @@ else:
     if analysis_level == 'Documents':
         items_with_embeddings = [doc for doc in st.session_state.documents if doc.embedding is not None]
         num_items = len(items_with_embeddings)
-        query_options = {doc.title: doc.title for doc in items_with_embeddings}
+        query_options = {doc.title: doc.title for doc in items_with_embeddings} # Map title to title for simplicity
     elif analysis_level == 'Chunks':
         chunk_labels = st.session_state.get('all_chunk_labels', [])
         num_items = len(chunk_labels)
-        query_options = {label: label for label in chunk_labels}
+        query_options = {label: label for label in chunk_labels} # Map label to label
 
     if not query_options:
-        st.info(f"No {analysis_level.lower()} with embeddings available for KNN query.")
+        st.info(f"No {analysis_level.lower()} with embeddings available for KNN analysis.")
     else:
         selected_key = st.selectbox(f"Select Query {analysis_level[:-1]}:", options=query_options.keys())
         max_k = max(0, num_items - 1)
 
         if max_k < 1:
-             st.warning(f"Need at least 2 {analysis_level.lower()} with embeddings for KNN comparison.")
+             st.warning(f"Need at least 2 {analysis_level.lower()} with embeddings for KNN.")
         else:
             k_neighbors = st.number_input("Number of neighbors (k):", min_value=1, max_value=max_k, value=min(DEFAULT_K, max_k), step=1)
 
             if st.button("Find Nearest Neighbors"):
                 query_emb = None
-                query_id = selected_key # Use label/title as ID for self-comparison
+                query_id = selected_key # Use label/title as ID for simplicity
 
                 try:
-                    # --- Get Query Embedding ---
                     if analysis_level == 'Documents':
-                        doc_map = {doc.title: doc for doc in items_with_embeddings} # Use already filtered list
+                        # Find the document object from the selected title
+                        doc_map = {doc.title: doc for doc in st.session_state.documents if doc.embedding is not None}
                         query_item_obj = doc_map.get(selected_key)
                         if query_item_obj: query_emb = query_item_obj.embedding
                     elif analysis_level == 'Chunks':
+                         # Use the lookup dictionary
                          lookup = st.session_state.get('chunk_label_lookup_dict', {})
                          query_item_obj = lookup.get(selected_key)
                          if query_item_obj: query_emb = query_item_obj.embedding
 
-                    # --- Perform KNN if Query Embedding Found ---
                     if query_emb is not None:
+                        # Get corpus based on level
                         corpus_embeddings = None
                         corpus_labels = []
                         if analysis_level == 'Documents':
-                            # Use the already prepared list/map
-                             if items_with_embeddings:
-                                corpus_embeddings = np.array([d.embedding for d in items_with_embeddings])
-                                corpus_labels = [d.title for d in items_with_embeddings]
+                            docs_with_embed = [doc for doc in st.session_state.documents if doc.embedding is not None]
+                            if docs_with_embed:
+                                corpus_embeddings = np.array([d.embedding for d in docs_with_embed])
+                                corpus_labels = [d.title for d in docs_with_embed]
                         elif analysis_level == 'Chunks':
                             corpus_embeddings = st.session_state.get('all_chunk_embeddings_matrix')
                             corpus_labels = st.session_state.get('all_chunk_labels', [])
 
-                        # Validate corpus before proceeding
-                        if corpus_embeddings is None or not corpus_labels or corpus_embeddings.ndim != 2 or corpus_embeddings.shape[0] < 1:
-                             st.error(f"Invalid or empty corpus for {analysis_level} KNN search.")
+                        if corpus_embeddings is None or corpus_embeddings.ndim != 2 or corpus_embeddings.shape[0] < 1:
+                            st.error(f"Invalid or empty corpus embeddings data for {analysis_level}.")
                         else:
-                             indices, scores = analysis_service.find_k_nearest(query_emb, corpus_embeddings, k=k_neighbors)
+                            indices, scores = analysis_service.find_k_nearest(query_emb, corpus_embeddings, k=k_neighbors) # Service handles self-exclusion
 
-                             st.subheader(f"Top {k_neighbors} neighbors for: {selected_key}")
-                             results = []
-                             if indices is not None:
-                                 # Create a mapping from label/title to its index for efficient self-check if needed
-                                 # corpus_id_map = {label: idx for idx, label in enumerate(corpus_labels)}
-                                 # query_idx = corpus_id_map.get(query_id)
+                            st.subheader(f"Top {k_neighbors} neighbors for: {selected_key}")
+                            results = []
+                            if indices is not None:
+                                for idx, score in zip(indices, scores):
+                                    if 0 <= idx < len(corpus_labels):
+                                        neighbor_label = corpus_labels[idx]
+                                        # Simple check to exclude self using label/title if find_k_nearest didn't
+                                        if neighbor_label != query_id:
+                                             results.append({"Neighbor": neighbor_label, "Similarity Score": f"{score:.4f}"})
+                            if results:
+                                st.table(results)
+                            else:
+                                # Corrected indentation for the else block
+                                st.write("No distinct neighbors found.")
 
-                                 for idx, score in zip(indices, scores):
-                                     # Check bounds just in case
-                                     if 0 <= idx < len(corpus_labels):
-                                         neighbor_label = corpus_labels[idx]
-                                         # find_k_nearest should already exclude self, rely on that
-                                         results.append({"Neighbor": neighbor_label, "Similarity Score": f"{score:.4f}"})
-                                     else:
-                                         st.warning(f"Neighbor index {idx} out of bounds.")
-
-                             if results:
-                                 st.table(results)
-                             else:
-                                 st.write("No distinct neighbors found.")
+                    # Moved the 'else' for missing query embedding to the correct scope
                     else:
                         st.error(f"Embedding not found for selected query {analysis_level[:-1]} ('{selected_key}').")
 
                 except Exception as e:
                     st.error(f"Error finding nearest neighbors: {e}")
-                    import traceback
-                    st.error(traceback.format_exc()) # Print full traceback for debugging
 
 
 # --- Display loaded documents details ---
@@ -797,13 +781,20 @@ with st.expander("View Loaded Documents", expanded=False): # Set expanded=False 
         for i, doc in enumerate(st.session_state.documents):
             embed_status = "Yes" if doc.embedding is not None else "No"
             st.markdown(f"**{i+1}. {doc.title}** - Doc Embedding: {embed_status}")
+            # st.caption(doc.content[:100] + "...") # Can be verbose
 
             if hasattr(doc, 'chunks') and doc.chunks:
                 chunk_embed_counts = sum(1 for chunk in doc.chunks if chunk.embedding is not None)
                 st.markdown(f"    Chunks: {len(doc.chunks)} ({chunk_embed_counts} embedded)")
-            elif hasattr(doc, 'chunks'): # Chunking ran but yielded 0
+                # Optionally show first few chunk details
+                # with st.container():
+                #     for chunk_idx, chunk in enumerate(doc.chunks[:3]):
+                #         chunk_embed_status = "Yes" if chunk.embedding is not None else "No"
+                #         st.markdown(f"      - Chk {chunk_idx+1}: **{chunk.context_label}** (Embed: {chunk_embed_status})")
+                #     if len(doc.chunks) > 3: st.markdown("      - ...")
+            elif hasattr(doc, 'chunks'):
                  st.markdown("    Chunks: 0")
-            else: # Chunking not run
+            else:
                  st.markdown("    Chunks: Not Processed")
             st.divider()
     else:
@@ -811,38 +802,33 @@ with st.expander("View Loaded Documents", expanded=False): # Set expanded=False 
 
 # --- (Optional) Computational Matrices Info Expander ---
 with st.expander("View Computational Matrices Info", expanded=False):
-    # Check chunk matrix exists in session state and is not None
-    chunk_matrix = st.session_state.get('all_chunk_embeddings_matrix')
-    if chunk_matrix is not None:
+    if 'all_chunk_embeddings_matrix' in st.session_state and st.session_state['all_chunk_embeddings_matrix'] is not None:
         st.write(f"**Chunk Embedding Matrix:**")
-        st.write(f"- Shape: {chunk_matrix.shape}")
+        st.write(f"- Shape: {st.session_state['all_chunk_embeddings_matrix'].shape}")
         st.write(f"- Number of Chunks: {len(st.session_state.get('all_chunk_labels', []))}")
 
         if st.button("Compute & Show Similarity Matrix Info"):
             if analysis_service:
-                sim_matrix = analysis_service.calculate_similarity_matrix(chunk_matrix)
+                sim_matrix = analysis_service.calculate_similarity_matrix(st.session_state['all_chunk_embeddings_matrix'])
                 if sim_matrix is not None:
                     st.write(f"**Chunk Similarity Matrix:**")
                     st.write(f"- Shape: {sim_matrix.shape}")
-                    # Display heatmap only if few chunks
-                    if sim_matrix.shape[0] > 0 and sim_matrix.shape[0] < 25:
+                    if sim_matrix.shape[0] < 25:
                          try:
                               import plotly.express as px
                               fig = px.imshow(sim_matrix, text_auto=".2f", aspect="auto",
                                                 labels=dict(x="Chunk Index", y="Chunk Index", color="Similarity"),
-                                                # Use short labels for heatmap axes if possible
-                                                # x=st.session_state.get('all_chunk_labels', []),
-                                                # y=st.session_state.get('all_chunk_labels', []),
+                                                x=st.session_state.get('all_chunk_labels', []),
+                                                y=st.session_state.get('all_chunk_labels', []),
                                                 title="Chunk Similarity Matrix Heatmap")
-                              fig.update_xaxes(side="top", tickangle=45)
+                              fig.update_xaxes(side="top", tickangle=45) # Improve label readability
                               st.plotly_chart(fig)
                          except ImportError:
-                              st.warning("Plotly Express not found. Cannot display heatmap.")
+                              st.warning("Plotly Express not found for heatmap. Please install.")
                          except Exception as e:
                               st.error(f"Failed to generate similarity heatmap: {e}")
-                    elif sim_matrix.shape[0] >= 25:
-                         st.info(f"Similarity matrix ({sim_matrix.shape[0]}x{sim_matrix.shape[0]}) too large for heatmap.")
-                    # else: matrix is empty, do nothing
+                    else:
+                         st.info(f"Similarity matrix ({sim_matrix.shape[0]}x{sim_matrix.shape[0]}) too large for heatmap display.")
                 else:
                     st.error("Failed to compute similarity matrix.")
             else:

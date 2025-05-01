@@ -1,6 +1,6 @@
 import plotly.express as px
 import numpy as np
-from typing import List
+from typing import List, Optional
 import plotly.graph_objects as go # Import go for figure type hint
 
 class VisualizationService:
@@ -10,25 +10,30 @@ class VisualizationService:
         self, 
         coords: np.ndarray, 
         labels: List[str], 
-        title: str = "2D Document Visualization"
+        title: str = "2D Document Visualization",
+        color_data: Optional[List[str]] = None
     ) -> go.Figure:
-        """Creates a 2D scatter plot from coordinates and labels."""
+        """Creates a 2D scatter plot from coordinates and labels, optionally colored."""
         if not isinstance(coords, np.ndarray) or coords.ndim != 2 or coords.shape[1] != 2:
             raise ValueError("Coordinates must be a 2D numpy array with shape (n, 2).")
         if not isinstance(labels, list) or len(labels) != coords.shape[0]:
             raise ValueError(f"Labels must be a list with length matching the number of coordinate rows ({coords.shape[0]}).")
+        if color_data is not None and len(color_data) != coords.shape[0]:
+             raise ValueError(f"Color data must be None or a list with length matching coordinate rows ({coords.shape[0]}).")
+
         
         fig = px.scatter(
             x=coords[:, 0],
             y=coords[:, 1],
-            # text=labels, # Remove direct text rendering on plot
-            hover_name=labels, # Use hover_name for better default hover
-            title=title
+            hover_name=labels, 
+            title=title,
+            color=color_data,
+            labels={'color': 'Source Document'} if color_data else None 
         )
-        # Update hover template for clarity (using hover_name)
-        fig.update_traces(hovertemplate="<b>%{hover_name}</b><br>x: %{x:.3f}<br>y: %{y:.3f}<extra></extra>")
         # Ensure only markers are shown, no text labels on plot
         fig.update_traces(mode='markers')
+        # Optional: Adjust legend position
+        # fig.update_layout(legend=dict(yanchor="top", y=0.99, xanchor="left", x=0.01))
         return fig
 
     def plot_scatter_3d(

@@ -30,24 +30,29 @@ class AnalysisService:
         # --- END DEBUG ---
 
         n_samples = embeddings.shape[0]
-        if n_samples <= 1:
-             # UMAP requires more than 1 sample
-             # Returning original or raising error might be options
-             # Or returning a specific shape indicating inability to reduce
-             print(f"Warning: Cannot perform UMAP with {n_samples} sample(s). Returning original data shape potentially modified.")
-             # Depending on desired behavior, might return zeros or copy
-             return np.zeros((n_samples, n_components))
+        # UMAP requires at least 3 points for n_neighbors=2, and generally more for good results.
+        # Handle cases with very few samples explicitly.
+        if n_samples <= 2:
+            print(f"Warning: Cannot perform meaningful UMAP with {n_samples} sample(s). Returning zeros.")
+            return np.zeros((n_samples, n_components))
 
         # Adjust n_neighbors based on the number of samples
-        n_neighbors = min(15, n_samples - 1) if n_samples > 1 else 5 # Default fallback if n_samples=1 logic changes
+        if n_samples <= 3: # Force n_neighbors=1 for 3 or fewer samples
+             n_neighbors = 1
+        elif n_samples <= 15: # For 4 to 15 samples
+            n_neighbors = n_samples - 1 # Will be between 3 and 14
+        else: # Use default for larger datasets (16+ samples)
+            n_neighbors = 15
         
         # --- DEBUG ---
-        print(f"DEBUG [analysis_service.py]: Calculated n_samples: {n_samples}, Calculated n_neighbors: {n_neighbors}")
+        print(f"DEBUG [analysis_service.py]: Calculated n_samples: {n_samples}, Final n_neighbors: {n_neighbors}") # Updated log message
         # --- END DEBUG ---
 
+        # The check below for n_neighbors <= 1 might not be needed now, 
+        # but we leave it as a safeguard/warning.
         if n_neighbors <= 1:
-            print(f"Warning: UMAP n_neighbors adjusted to 1 due to low sample count ({n_samples}). Results might be unstable.")
-            n_neighbors = 1 # UMAP technically allows 1 but warns.
+            print(f"Warning: UMAP n_neighbors is {n_neighbors} due to low sample count ({n_samples}). Results might be unstable.")
+            # UMAP might handle n_neighbors=1, proceed with caution.
 
         try:
             reducer = UMAP(
@@ -130,4 +135,22 @@ class AnalysisService:
             return centroid
         except Exception as e:
             print(f"Error calculating centroid: {e}")
+            return None 
+
+    def calculate_similarity_matrix(self, embeddings_matrix: np.ndarray) -> Optional[np.ndarray]:
+        """Calculates the pairwise cosine similarity matrix for a matrix of embeddings."""
+        if not isinstance(embeddings_matrix, np.ndarray) or embeddings_matrix.ndim != 2 or embeddings_matrix.shape[0] < 1:
+            print("Error: Input must be a valid 2D numpy array with at least one embedding.")
+            return None
+        # Handle case with only 1 embedding (similarity matrix is just [[1.]])
+        if embeddings_matrix.shape[0] == 1:
+            return np.array([[1.0]])
+        try:
+            # cosine_similarity calculates row-wise similarities
+            similarity_matrix = cosine_similarity(embeddings_matrix)
+            # Ensure diagonal is exactly 1.0 (sometimes minor float errors, although often handled)
+            # np.fill_diagonal(similarity_matrix, 1.0) # Optional: uncomment if needed
+            return similarity_matrix
+        except Exception as e:
+            print(f"Error calculating similarity matrix: {e}")
             return None 
