@@ -3,7 +3,8 @@ import nltk
 import numpy as np
 from typing import List, Dict, Any
 from nltk.tokenize import sent_tokenize
-from nltk.downloader import ErrorMessage
+# Remove ErrorMessage import if no longer used directly in except blocks
+# from nltk.downloader import ErrorMessage
 
 from models.chunk import Chunk
 from models.document import Document
@@ -24,36 +25,19 @@ class ContextualChunker:
         """
         self.embedding_service = embedding_service
         self.analysis_service = analysis_service
-        # Ensure necessary NLTK data is downloaded
-        try:
-            # Ensure 'punkt' resource bundle is downloaded (includes punkt_tab etc.)
-            nltk.data.find('tokenizers/punkt')
-            print("NLTK 'punkt' resource already available.") # Added confirmation
-        except LookupError:
-            print("NLTK 'punkt' resource not found. Downloading...")
-            try:
-                nltk.download('punkt') # Download the whole bundle
-                print("NLTK 'punkt' resource downloaded successfully.")
-            # except ErrorMessage as e: # ErrorMessage might not inherit from Exception
-            #     print(f"Failed to download NLTK 'punkt' resource: {e}")
-            except Exception as download_error: # Catch broader errors
-                 # Log or handle cases where download might fail in restricted environments
-                 print(f"Warning: Failed to download NLTK 'punkt' resource: {download_error}")
-                 # The app might still work if resource exists from previous runs/system install
-
-        # <<< REMOVE SEPARATE DOWNLOAD FOR punkt_tab >>>
+        # <<< REMOVE NLTK DOWNLOAD CHECK FROM INIT >>>
         # try:
-        #     nltk.data.find('tokenizers/punkt_tab')
+        #     # Ensure 'punkt' resource bundle is downloaded (includes punkt_tab etc.)
+        #     nltk.data.find('tokenizers/punkt')
+        #     print("NLTK 'punkt' resource already available.") # Added confirmation
         # except LookupError:
-        #     print("NLTK 'punkt_tab' resource not found. Downloading...")
+        #     print("NLTK 'punkt' resource not found. Downloading...")
         #     try:
-        #         nltk.download('punkt_tab', quiet=True)
-        #         print("NLTK 'punkt_tab' resource downloaded successfully.")
-        #     except ErrorMessage as e:
-        #         print(f"Failed to download NLTK 'punkt_tab' resource: {e}")
-        #     except Exception as e:
-        #         print(f"An unexpected error occurred during NLTK download: {e}")
-        # <<< END REMOVED DOWNLOAD >>>
+        #         nltk.download('punkt') # Download the whole bundle
+        #         print("NLTK 'punkt' resource downloaded successfully.")
+        #     except Exception as download_error: # Catch broader errors
+        #          print(f"Warning: Failed to download NLTK 'punkt' resource: {download_error}")
+        # <<< END REMOVED BLOCK >>>
 
     def chunk_document(self, document: Document) -> List[Chunk]:
         """
@@ -179,6 +163,23 @@ class ContextualChunker:
             A list of dictionaries, each representing a potential chunk with
             'content', 'context_label', 'start_char', 'end_char'.
         """
+        # <<< ADD NLTK DOWNLOAD CHECK HERE >>>
+        try:
+            nltk.data.find('tokenizers/punkt')
+        except LookupError:
+            try:
+                print("NLTK 'punkt' not found in _chunk_by_semantic_similarity, attempting download...")
+                nltk.download('punkt', quiet=True) # Download quietly if possible
+                print("NLTK 'punkt' download attempt finished.")
+                # Verify again (optional, useful for debugging)
+                # nltk.data.find('tokenizers/punkt') 
+                # print("NLTK 'punkt' resource found after download attempt.")
+            except Exception as download_error:
+                 # Log or handle cases where download might fail
+                 print(f"Warning: Failed to download NLTK 'punkt' resource within chunker: {download_error}")
+                 # Allow execution to continue, hoping sent_tokenize might work anyway or fail gracefully
+        # <<< END NLTK DOWNLOAD CHECK >>>
+
         if not text or not text.strip():
             return []
 
