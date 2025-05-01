@@ -26,33 +26,34 @@ class ContextualChunker:
         self.analysis_service = analysis_service
         # Ensure necessary NLTK data is downloaded
         try:
+            # Ensure 'punkt' resource bundle is downloaded (includes punkt_tab etc.)
             nltk.data.find('tokenizers/punkt')
+            print("NLTK 'punkt' resource already available.") # Added confirmation
         except LookupError:
             print("NLTK 'punkt' resource not found. Downloading...")
             try:
-                nltk.download('punkt', quiet=True)
+                nltk.download('punkt') # Download the whole bundle
                 print("NLTK 'punkt' resource downloaded successfully.")
-            except ErrorMessage as e:
-                # Catch potential download errors (e.g., network issues)
-                print(f"Failed to download NLTK 'punkt' resource: {e}")
-                # Decide how to handle this - maybe raise an error or log a warning
-                # For now, print error and continue, chunking might fail later
-            except Exception as e: # Catch other potential exceptions during download
-                print(f"An unexpected error occurred during NLTK download: {e}")
+            # except ErrorMessage as e: # ErrorMessage might not inherit from Exception
+            #     print(f"Failed to download NLTK 'punkt' resource: {e}")
+            except Exception as download_error: # Catch broader errors
+                 # Log or handle cases where download might fail in restricted environments
+                 print(f"Warning: Failed to download NLTK 'punkt' resource: {download_error}")
+                 # The app might still work if resource exists from previous runs/system install
 
-        # <<< ADD DOWNLOAD FOR punkt_tab >>>
-        try:
-            nltk.data.find('tokenizers/punkt_tab')
-        except LookupError:
-            print("NLTK 'punkt_tab' resource not found. Downloading...")
-            try:
-                nltk.download('punkt_tab', quiet=True)
-                print("NLTK 'punkt_tab' resource downloaded successfully.")
-            except ErrorMessage as e:
-                print(f"Failed to download NLTK 'punkt_tab' resource: {e}")
-            except Exception as e:
-                print(f"An unexpected error occurred during NLTK download: {e}")
-        # <<< END ADDED DOWNLOAD >>>
+        # <<< REMOVE SEPARATE DOWNLOAD FOR punkt_tab >>>
+        # try:
+        #     nltk.data.find('tokenizers/punkt_tab')
+        # except LookupError:
+        #     print("NLTK 'punkt_tab' resource not found. Downloading...")
+        #     try:
+        #         nltk.download('punkt_tab', quiet=True)
+        #         print("NLTK 'punkt_tab' resource downloaded successfully.")
+        #     except ErrorMessage as e:
+        #         print(f"Failed to download NLTK 'punkt_tab' resource: {e}")
+        #     except Exception as e:
+        #         print(f"An unexpected error occurred during NLTK download: {e}")
+        # <<< END REMOVED DOWNLOAD >>>
 
     def chunk_document(self, document: Document) -> List[Chunk]:
         """

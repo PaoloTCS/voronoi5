@@ -5,6 +5,7 @@ from typing import Tuple, List, Optional
 
 class AnalysisService:
     """Provides methods for embedding analysis, including similarity calculation, dimensionality reduction, and nearest neighbor search."""
+    MIN_N_NEIGHBORS_FOR_UMAP = 2 # UMAP requirement
 
     def calculate_similarity(self, emb1: np.ndarray, emb2: np.ndarray) -> float:
         """Calculates the cosine similarity between two embedding vectors."""
@@ -20,53 +21,48 @@ class AnalysisService:
         # Return the single similarity score (cosine_similarity returns a 2D array)
         return float(similarity[0, 0])
 
-    def reduce_dimensions(self, embeddings: np.ndarray, n_components: int = 2) -> np.ndarray:
+    def reduce_dimensions(self, embeddings: np.ndarray, n_components: int = 2) -> Optional[np.ndarray]:
         """Reduces the dimensionality of embeddings using UMAP."""
         if not isinstance(embeddings, np.ndarray) or embeddings.ndim != 2:
-            raise ValueError("Embeddings must be a 2D numpy array.")
-        
-        print(f"DEBUG [analysis_service.py]: Received embeddings shape: {embeddings.shape}")
-        # --- END DEBUG ---
+            # Log error or raise ValueError instead of using st.error
+            print("ERROR [AnalysisService]: Embeddings must be a 2D numpy array.")
+            # raise ValueError("Embeddings must be a 2D numpy array.")
+            return None # Return None to indicate failure
 
         n_samples = embeddings.shape[0]
-        # Handle cases with very few samples explicitly.
-        if n_samples <= 2:
-            print(f"Warning: Cannot perform meaningful UMAP with {n_samples} sample(s). Returning zeros.")
-            return np.zeros((n_samples, n_components))
 
-        # Adjust n_neighbors based on the number of samples
-        if n_samples <= 3: # Force n_neighbors=1 for 3 samples
-             n_neighbors = 1
-        elif n_samples <= 15: # For 4 to 15 samples
-            n_neighbors = n_samples - 1 # Will be between 3 and 14
-        else: # Use default for larger datasets (16+ samples)
-            n_neighbors = 15
+        # --- Strict check for minimum samples for UMAP --- 
+        # UMAP needs n_samples > n_neighbors, and n_neighbors >= 2 is required for stability.
+        # Therefore, we need at least MIN_N_NEIGHBORS_FOR_UMAP + 1 samples.
+        min_samples_needed = self.MIN_N_NEIGHBORS_FOR_UMAP + 1
+        if n_samples < min_samples_needed:
+             print(f"Warning [AnalysisService]: UMAP requires at least {min_samples_needed} samples (found {n_samples}). Cannot reduce dimensions.")
+             return None # Return None to indicate failure
 
-        # --- DEBUG ---
-        print(f"DEBUG [analysis_service.py]: Calculated n_samples: {n_samples}, Final n_neighbors: {n_neighbors}")
-        # --- END DEBUG ---
+        # Adjust n_neighbors based on samples, ensuring it's >= MIN_N_NEIGHBORS_FOR_UMAP
+        # A common default for UMAP is 15
+        n_neighbors = min(15, n_samples - 1) # Max n_neighbors is n_samples - 1
+        n_neighbors = max(self.MIN_N_NEIGHBORS_FOR_UMAP, n_neighbors) # Ensure it's at least 2
 
-        # <<< ADD CHECK: Prevent UMAP call if n_neighbors is too low >>>
-        if n_neighbors <= 1:
-            print(f"Warning: UMAP n_neighbors is {n_neighbors} due to low sample count ({n_samples}). Meaningful reduction not possible. Returning zeros.")
-            # Results are unreliable/undefined with n_neighbors <= 1, return zeros instead of erroring.
-            return np.zeros((n_samples, n_components))
-        # <<< END ADDED CHECK >>>
+        print(f"DEBUG [AnalysisService]: n_samples: {n_samples}, Calculated n_neighbors: {n_neighbors}")
+
+        # <<< REMOVED previous n_neighbors <= 1 check/warning, handled by min_samples_needed check >>>
 
         try:
             reducer = UMAP(
                 n_components=n_components,
                 n_neighbors=n_neighbors,
-                min_dist=0.1,
+                min_dist=0.1, # Default min_dist
                 random_state=42,
-                #metric='cosine' # Often suitable for sentence embeddings
+                # metric='cosine' # Consider adding if appropriate for your embeddings
             )
             reduced_embeddings = reducer.fit_transform(embeddings)
             return reduced_embeddings
         except Exception as e:
-            print(f"Error during UMAP dimensionality reduction: {e}")
-            # Consider returning original embeddings or raising the error
-            raise
+            print(f"Error [AnalysisService]: Error during UMAP dimensionality reduction: {e}")
+            # Optionally re-raise the exception or provide more context
+            # raise e 
+            return None # Return None on error
 
     def find_k_nearest(
         self, 

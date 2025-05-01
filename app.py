@@ -379,44 +379,64 @@ else:
             st.session_state.scatter_fig_2d = None
             st.session_state.current_coords_2d = None
             st.session_state.current_labels = []
-            try:
-                with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 2D..."):
-                    coords_2d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=2)
-                if coords_2d is not None:
-                    st.session_state.current_coords_2d = coords_2d
-                    st.session_state.current_labels = labels_to_plot
 
-                    color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
-                    fig_2d = visualization_service.plot_scatter_2d(
-                        coords=coords_2d, labels=labels_to_plot,
-                        title=f"2D UMAP Projection of {plot_title_suffix}", color_data=color_arg
-                    )
-                    st.session_state.scatter_fig_2d = fig_2d
-                else:
-                    st.error("Failed to generate 2D coordinates.")
-            except Exception as e:
-                st.error(f"Error generating 2D plot: {e}")
+            if analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT:
+                st.error(f"Plotting requires >= {MIN_ITEMS_FOR_PLOT} documents with embeddings.")
+            else: # Only proceed if enough items
+                try:
+                    with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 2D..."):
+                        # Ensure embeddings_to_plot is valid before passing
+                        # The check in AnalysisService is now primary, but this is a safety layer
+                        if embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (1 if analysis_level == 'Chunks' else MIN_ITEMS_FOR_PLOT):
+                             coords_2d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=2)
+                             # Check if reduce_dimensions returned None (due to error or insufficient samples)
+                             if coords_2d is None:
+                                  st.error("Failed to generate 2D coordinates (check logs for details).")
+                                  # Avoid further plotting logic if coords are None
+                             else:
+                                 st.session_state.current_coords_2d = coords_2d
+                                 st.session_state.current_labels = labels_to_plot
+                                 color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
+                                 fig_2d = visualization_service.plot_scatter_2d(
+                                     coords=coords_2d, labels=labels_to_plot,
+                                     title=f"2D UMAP Projection of {plot_title_suffix}", color_data=color_arg
+                                 )
+                                 st.session_state.scatter_fig_2d = fig_2d
+                        else:
+                             st.warning("Insufficient data provided for dimensionality reduction.")
+
+                except Exception as e:
+                     st.error(f"Error generating 2D plot: {e}")
 
     with col2:
         if st.button("Show 3D Plot", disabled=not can_plot_now):
             st.session_state.scatter_fig_2d = None # Clear 2D plot state
             st.session_state.current_coords_2d = None
             st.session_state.current_labels = []
-            try:
-                with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 3D..."):
-                    coords_3d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=3)
-                if coords_3d is not None:
-                    color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
-                    fig_3d = visualization_service.plot_scatter_3d(
-                        coords=coords_3d, labels=labels_to_plot,
-                        title=f"3D UMAP Projection of {plot_title_suffix}"
-                        # Add color_arg if plot_scatter_3d supports it
-                    )
-                    st.plotly_chart(fig_3d, use_container_width=True)
-                else:
-                    st.error("Failed to generate 3D coordinates.")
-            except Exception as e:
-                st.error(f"Error generating 3D plot: {e}")
+
+            if analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT:
+                st.error(f"Plotting requires >= {MIN_ITEMS_FOR_PLOT} documents with embeddings.")
+            else: # Only proceed if enough items
+                try:
+                    with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 3D..."):
+                        # Ensure embeddings_to_plot is valid before passing
+                        if embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (1 if analysis_level == 'Chunks' else MIN_ITEMS_FOR_PLOT):
+                            coords_3d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=3)
+                            # Check if reduce_dimensions returned None
+                            if coords_3d is None:
+                                st.error("Failed to generate 3D coordinates (check logs for details).")
+                            else:
+                                color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
+                                fig_3d = visualization_service.plot_scatter_3d(
+                                   coords=coords_3d, labels=labels_to_plot,
+                                   title=f"3D UMAP Projection of {plot_title_suffix}"
+                                   # Add color_arg if plot_scatter_3d supports it
+                                )
+                                st.plotly_chart(fig_3d, use_container_width=True)
+                        else:
+                            st.warning("Insufficient data provided for dimensionality reduction.")
+                except Exception as e:
+                     st.error(f"Error generating 3D plot: {e}")
 
     # --- Display 2D Plot and Handle Selection (Semantic Center) ---
     if st.session_state.get('scatter_fig_2d') is not None:

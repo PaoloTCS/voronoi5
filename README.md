@@ -73,3 +73,7 @@ Voronoi4 is an enhanced version of the Semantic Voronoi Tessellation Explorer, b
 None
 Copyright © Litchfield Capital Corporation. All rights reserved.
 This repository is proprietary, and no license is granted to copy, modify, or distribute its contents.
+
+
+Remote streamlit app at: https://voronoi5-lgqsjrugjmp2xq3zjkfrbk.streamlit.app/
+
