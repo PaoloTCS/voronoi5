@@ -164,20 +164,20 @@ class ContextualChunker:
             'content', 'context_label', 'start_char', 'end_char'.
         """
         # <<< ADD NLTK DOWNLOAD CHECK HERE >>>
-        try:
-            nltk.data.find('tokenizers/punkt')
-        except LookupError:
+        # Try downloading both punkt and punkt_tab just in case
+        for resource_id in ['punkt', 'punkt_tab']:
             try:
-                print("NLTK 'punkt' not found in _chunk_by_semantic_similarity, attempting download...")
-                nltk.download('punkt', quiet=True) # Download quietly if possible
-                print("NLTK 'punkt' download attempt finished.")
-                # Verify again (optional, useful for debugging)
-                # nltk.data.find('tokenizers/punkt') 
-                # print("NLTK 'punkt' resource found after download attempt.")
-            except Exception as download_error:
-                 # Log or handle cases where download might fail
-                 print(f"Warning: Failed to download NLTK 'punkt' resource within chunker: {download_error}")
-                 # Allow execution to continue, hoping sent_tokenize might work anyway or fail gracefully
+                nltk.data.find(f'tokenizers/{resource_id}')
+            except LookupError:
+                try:
+                    print(f"NLTK '{resource_id}' not found, attempting download...")
+                    nltk.download(resource_id, quiet=True) # Download quietly
+                    print(f"NLTK '{resource_id}' download attempt finished.")
+                    # Optional verification
+                    # nltk.data.find(f'tokenizers/{resource_id}') 
+                    # print(f"NLTK '{resource_id}' resource found after download attempt.")
+                except Exception as download_error:
+                     print(f"Warning: Failed to download NLTK '{resource_id}' resource: {download_error}")
         # <<< END NLTK DOWNLOAD CHECK >>>
 
         if not text or not text.strip():
