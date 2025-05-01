@@ -2,6 +2,8 @@ import re
 import nltk
 import numpy as np
 from typing import List, Dict, Any
+from nltk.tokenize import sent_tokenize
+from nltk.downloader import ErrorMessage
 
 from models.chunk import Chunk
 from models.document import Document
@@ -22,12 +24,35 @@ class ContextualChunker:
         """
         self.embedding_service = embedding_service
         self.analysis_service = analysis_service
-        # Ensure necessary NLTK data is downloaded (if not already)
+        # Ensure necessary NLTK data is downloaded
         try:
             nltk.data.find('tokenizers/punkt')
         except LookupError:
-            nltk.download('punkt')
+            print("NLTK 'punkt' resource not found. Downloading...")
+            try:
+                nltk.download('punkt', quiet=True)
+                print("NLTK 'punkt' resource downloaded successfully.")
+            except ErrorMessage as e:
+                # Catch potential download errors (e.g., network issues)
+                print(f"Failed to download NLTK 'punkt' resource: {e}")
+                # Decide how to handle this - maybe raise an error or log a warning
+                # For now, print error and continue, chunking might fail later
+            except Exception as e: # Catch other potential exceptions during download
+                print(f"An unexpected error occurred during NLTK download: {e}")
 
+        # <<< ADD DOWNLOAD FOR punkt_tab >>>
+        try:
+            nltk.data.find('tokenizers/punkt_tab')
+        except LookupError:
+            print("NLTK 'punkt_tab' resource not found. Downloading...")
+            try:
+                nltk.download('punkt_tab', quiet=True)
+                print("NLTK 'punkt_tab' resource downloaded successfully.")
+            except ErrorMessage as e:
+                print(f"Failed to download NLTK 'punkt_tab' resource: {e}")
+            except Exception as e:
+                print(f"An unexpected error occurred during NLTK download: {e}")
+        # <<< END ADDED DOWNLOAD >>>
 
     def chunk_document(self, document: Document) -> List[Chunk]:
         """

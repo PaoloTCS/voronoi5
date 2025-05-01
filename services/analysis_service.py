@@ -25,34 +25,33 @@ class AnalysisService:
         if not isinstance(embeddings, np.ndarray) or embeddings.ndim != 2:
             raise ValueError("Embeddings must be a 2D numpy array.")
         
-        # --- DEBUG ---
         print(f"DEBUG [analysis_service.py]: Received embeddings shape: {embeddings.shape}")
         # --- END DEBUG ---
 
         n_samples = embeddings.shape[0]
-        # UMAP requires at least 3 points for n_neighbors=2, and generally more for good results.
         # Handle cases with very few samples explicitly.
         if n_samples <= 2:
             print(f"Warning: Cannot perform meaningful UMAP with {n_samples} sample(s). Returning zeros.")
             return np.zeros((n_samples, n_components))
 
         # Adjust n_neighbors based on the number of samples
-        if n_samples <= 3: # Force n_neighbors=1 for 3 or fewer samples
+        if n_samples <= 3: # Force n_neighbors=1 for 3 samples
              n_neighbors = 1
         elif n_samples <= 15: # For 4 to 15 samples
             n_neighbors = n_samples - 1 # Will be between 3 and 14
         else: # Use default for larger datasets (16+ samples)
             n_neighbors = 15
-        
+
         # --- DEBUG ---
-        print(f"DEBUG [analysis_service.py]: Calculated n_samples: {n_samples}, Final n_neighbors: {n_neighbors}") # Updated log message
+        print(f"DEBUG [analysis_service.py]: Calculated n_samples: {n_samples}, Final n_neighbors: {n_neighbors}")
         # --- END DEBUG ---
 
-        # The check below for n_neighbors <= 1 might not be needed now, 
-        # but we leave it as a safeguard/warning.
+        # <<< ADD CHECK: Prevent UMAP call if n_neighbors is too low >>>
         if n_neighbors <= 1:
-            print(f"Warning: UMAP n_neighbors is {n_neighbors} due to low sample count ({n_samples}). Results might be unstable.")
-            # UMAP might handle n_neighbors=1, proceed with caution.
+            print(f"Warning: UMAP n_neighbors is {n_neighbors} due to low sample count ({n_samples}). Meaningful reduction not possible. Returning zeros.")
+            # Results are unreliable/undefined with n_neighbors <= 1, return zeros instead of erroring.
+            return np.zeros((n_samples, n_components))
+        # <<< END ADDED CHECK >>>
 
         try:
             reducer = UMAP(
