@@ -1,0 +1,16 @@
+Recurrent Neural Networks (RNNs)
+
+Recurrent Neural Networks (RNNs) are a class of artificial neural networks designed to recognize patterns in sequences of data, such as text, speech, genomes, or numerical time series data. Unlike standard feedforward networks, RNNs have connections that loop back, allowing information to persist. This internal state (memory) allows RNNs to exhibit dynamic temporal behavior.
+
+The core idea behind RNNs is the use of sequential information. In a traditional neural network, all inputs (and outputs) are assumed to be independent of each other. For many tasks, this is a major limitation. If you want to predict the next word in a sentence, you need to know which words came before it. RNNs are called recurrent because they perform the same task for every element of a sequence, with the output being dependent on the previous computations. Information about what has been seen so far is captured in the network's hidden state.
+
+A simple RNN unit takes an input `x_t` at time step `t` and the hidden state `h_{t-1}` from the previous time step `t-1`, and computes the new hidden state `h_t` and the output `y_t`. The same function and set of parameters are used at every time step. This can be expressed mathematically as:
+
+`h_t = f(W_{hh} * h_{t-1} + W_{xh} * x_t + b_h)`
+`y_t = g(W_{hy} * h_t + b_y)`
+
+where `W_{hh}`, `W_{xh}`, `W_{hy}` are weight matrices, `b_h`, `b_y` are bias vectors, and `f` and `g` are activation functions (often tanh or ReLU for `f`, and softmax for `g` if `y_t` is a probability distribution).
+
+While powerful, simple RNNs suffer from the vanishing gradient problem. During backpropagation, the gradients used to update the weights can become extremely small, especially for long sequences. This makes it difficult for the network to learn dependencies between elements that are far apart in the sequence. Conversely, gradients can also explode, though this is often easier to handle (e.g., using gradient clipping).
+
+Several variations of RNNs have been developed to address these limitations, most notably Long Short-Term Memory (LSTM) and Gated Recurrent Unit (GRU) networks, which use gating mechanisms to better control the flow of information and gradients through time. 

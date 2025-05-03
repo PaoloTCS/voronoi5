@@ -2,6 +2,7 @@ import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from umap import UMAP
 from typing import Tuple, List, Optional
+import networkx as nx # Import networkx
 
 class AnalysisService:
     """Provides methods for embedding analysis, including similarity calculation, dimensionality reduction, and nearest neighbor search."""
@@ -49,11 +50,17 @@ class AnalysisService:
         # <<< REMOVED previous n_neighbors <= 1 check/warning, handled by min_samples_needed check >>>
 
         try:
+            # --- Choose UMAP initialization based on sample size ---
+            # Spectral init can fail with very few samples (k >= N issue)
+            umap_init_method = 'random' if n_samples < 5 else 'spectral'
+            print(f"DEBUG [AnalysisService]: Using UMAP init method: {umap_init_method}")
+
             reducer = UMAP(
                 n_components=n_components,
                 n_neighbors=n_neighbors,
                 min_dist=0.1, # Default min_dist
                 random_state=42,
+                init=umap_init_method, # Use conditional init method
                 # metric='cosine' # Consider adding if appropriate for your embeddings
             )
             reduced_embeddings = reducer.fit_transform(embeddings)
@@ -149,3 +156,75 @@ class AnalysisService:
         except Exception as e:
             print(f"Error calculating similarity matrix: {e}")
             return None 
+
+    def create_semantic_graph(self,
+                              embeddings_matrix: np.ndarray,
+                              labels: List[str],
+                              similarity_threshold: float = 0.7,
+                              similarity_matrix: Optional[np.ndarray] = None
+                             ) -> Optional[nx.Graph]:
+        """
+        Creates a NetworkX graph based on semantic similarity between embeddings.
+
+        Args:
+            embeddings_matrix: A (n_items, embedding_dim) numpy array.
+            labels: A list of labels corresponding to the rows in embeddings_matrix.
+            similarity_threshold: Minimum cosine similarity to create an edge.
+            similarity_matrix: (Optional) Pre-computed similarity matrix.
+
+        Returns:
+            A NetworkX graph or None if input is invalid.
+        """
+        # Input validation
+        if embeddings_matrix is None or embeddings_matrix.ndim != 2:
+            print("Error [create_semantic_graph]: Invalid embeddings_matrix provided.")
+            return None
+
+        num_items = embeddings_matrix.shape[0]
+        if not isinstance(labels, list) or len(labels) != num_items:
+            print("Error [create_semantic_graph]: Number of labels must match number of embeddings.")
+            return None
+        if num_items < 1:
+             print("Error [create_semantic_graph]: Need at least one item to create a graph.")
+             return None
+
+        # Compute similarity matrix if not provided
+        if similarity_matrix is None:
+            print("Computing similarity matrix for graph...")
+            similarity_matrix = self.calculate_similarity_matrix(embeddings_matrix)
+            if similarity_matrix is None:
+                 print("Error [create_semantic_graph]: Failed to compute similarity matrix.")
+                 return None
+            # Check shape consistency just in case
+            if similarity_matrix.shape != (num_items, num_items):
+                 print(f"Error [create_semantic_graph]: Similarity matrix shape mismatch ({similarity_matrix.shape} vs ({num_items},{num_items}))")
+                 return None
+
+        print(f"Building graph with similarity threshold: {similarity_threshold}")
+        G = nx.Graph()
+        # Add nodes with labels and Graphviz attributes
+        for i, label in enumerate(labels):
+            # Restore Graphviz fontsize
+            G.add_node(label, 
+                       index=i, 
+                       fontsize=10) # Restore fontsize for Graphviz node label
+                      # label=label) # label is implicit for pydot
+
+        # Add edges based on threshold
+        # Iterate through the upper triangle of the similarity matrix (excluding diagonal)
+        for i in range(num_items):
+            for j in range(i + 1, num_items):
+                similarity = similarity_matrix[i, j]
+                # Ensure similarity is treated as float for comparison
+                if float(similarity) >= similarity_threshold:
+                    score = float(similarity)
+                    # Restore edge attributes for Graphviz
+                    G.add_edge(labels[i], labels[j], 
+                               weight=round(score, 4), 
+                               label=f"{score:.2f}", # Keep label for edge
+                               fontsize=8) # Restore fontsize for Graphviz edge label
+                               # value=score, # Remove Pyvis value
+                               # title=f"Similarity: {score:.3f}") # Remove Pyvis title
+
+        print(f"Graph created with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
+        return G 

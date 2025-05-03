@@ -1,0 +1,14 @@
+Long Short-Term Memory (LSTM) Networks
+
+Long Short-Term Memory (LSTM) networks are a special kind of Recurrent Neural Network (RNN) capable of learning long-term dependencies. Introduced by Hochreiter & Schmidhuber (1997), they were designed to overcome the vanishing gradient problem that can plague simple RNNs. LSTMs are widely used and have achieved state-of-the-art results on many tasks, including speech recognition, language modeling, translation, and image captioning.
+
+The key innovation of LSTMs is their memory cell and gating mechanism. Unlike a simple RNN unit which has a single neural network layer, an LSTM unit contains four interacting layers organized in a specific way. Central to this is the cell state, which runs straight down the entire chain, with only minor linear interactions. Information can be added to or removed from the cell state, regulated by structures called gates.
+
+Gates are a way to optionally let information through. They are composed of a sigmoid neural network layer and a pointwise multiplication operation. The sigmoid layer outputs numbers between zero and one, describing how much of each component should be let through. A value of zero means "let nothing through," while a value of one means "let everything through."
+
+An LSTM has three of these gates to protect and control the cell state:
+1.  Forget Gate: Decides what information to throw away from the cell state. It looks at the previous hidden state `h_{t-1}` and the current input `x_t`, and outputs a number between 0 and 1 for each number in the previous cell state `C_{t-1}`.
+2.  Input Gate: Decides which new information to store in the cell state. First, a sigmoid layer decides which values we'll update. Then, a tanh layer creates a vector of new candidate values, `~C_t`, that could be added to the state.
+3.  Output Gate: Decides what to output. This output will be based on our filtered cell state. First, we run a sigmoid layer which decides what parts of the cell state we're going to output. Then, we put the cell state through tanh (to push the values to be between -1 and 1) and multiply it by the output of the sigmoid gate, so that we only output the parts we decided to.
+
+These gating mechanisms allow LSTMs to selectively remember or forget information over long sequences, making them much more effective than simple RNNs at capturing long-range dependencies in data. Gated Recurrent Units (GRUs) are a popular variation with a simpler structure. 

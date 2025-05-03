@@ -18,3 +18,6 @@ Monkeys enjoy bananas. This is the third sentence, still chapter two.
 CHAPTER 3
 Finally, chapter three starts. It discusses topic C, maybe cherries. Cherries are small and red.
 They often come in pairs. This is the second sentence.
+
+Chapter 4 
+This chapter starts a discussion on Artificial Intelligence, AI. It can be defined as the ability of a computer or machine to perform tasks that typically require human intelligence

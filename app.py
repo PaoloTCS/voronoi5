@@ -6,6 +6,9 @@ import io # Added io
 import pandas as pd # Added pandas import
 from typing import List, Tuple, Optional
 from PyPDF2 import PdfReader # Corrected capitalization
+import networkx as nx # Import networkx
+import plotly.express as px # Add import for colors
+import streamlit.components.v1 as components # Import Streamlit components
 
 # Project Modules
 from models.document import Document
@@ -251,8 +254,9 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
 
             # --- Post-processing: Create and store chunk matrix ---
             all_chunk_embeddings_list = []
-            all_chunk_labels_list = []
-            chunk_label_to_object_lookup = {}
+            all_chunk_labels_list = [] # This will store the SHORT labels for display
+            chunk_label_to_object_lookup = {} # Key: short_label, Value: chunk object
+            chunk_full_label_lookup = {} # Key: short_label, Value: original_full_label (optional, if needed elsewhere)
             print("Consolidating chunk embeddings into matrix and creating lookup...")
             if st.session_state.documents:
                 for doc in st.session_state.documents:
@@ -260,17 +264,31 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                          for i, chunk in enumerate(doc.chunks):
                              if chunk.embedding is not None:
                                  all_chunk_embeddings_list.append(chunk.embedding)
-                                 # Use consistent, descriptive label format
-                                 label = f"{doc.title} :: Chunk {i+1} ({chunk.context_label})"
-                                 all_chunk_labels_list.append(label)
-                                 chunk_label_to_object_lookup[label] = chunk
+
+                                 # --- Create Shortened Label ---
+                                 # Shorten title (e.g., first 10 chars + ellipsis)
+                                 short_title = doc.title[:10] + ('...' if len(doc.title) > 10 else '')
+                                 # Shorten context label (e.g., first 15 chars + ellipsis)
+                                 short_context = chunk.context_label[:15] + ('...' if len(chunk.context_label) > 15 else '')
+                                 # Combine into the short label for display
+                                 short_label = f"{short_title}::C{i+1}({short_context})"
+
+                                 # Original full label (store if needed, maybe not directly used now)
+                                 # original_full_label = f"{doc.title} :: Chunk {i+1} ({chunk.context_label})"
+
+                                 # Use the SHORT label for the list and lookup key
+                                 all_chunk_labels_list.append(short_label)
+                                 # Store chunk object AND original doc title in lookup
+                                 chunk_label_to_object_lookup[short_label] = (chunk, doc.title) 
+                                 # chunk_full_label_lookup[short_label] = original_full_label # Optional
 
             # Store matrix, labels, and lookup in session state
             if all_chunk_embeddings_list:
                 try:
                     st.session_state['all_chunk_embeddings_matrix'] = np.array(all_chunk_embeddings_list)
-                    st.session_state['all_chunk_labels'] = all_chunk_labels_list
-                    st.session_state['chunk_label_lookup_dict'] = chunk_label_to_object_lookup
+                    st.session_state['all_chunk_labels'] = all_chunk_labels_list # Store short labels
+                    st.session_state['chunk_label_lookup_dict'] = chunk_label_to_object_lookup # Uses short labels as keys, stores (chunk, title)
+                    # st.session_state['chunk_full_label_lookup'] = chunk_full_label_lookup # Optional
                     st.sidebar.success(f"Stored matrix & lookup for {len(all_chunk_labels_list)} chunks.")
                 except Exception as matrix_error:
                      st.sidebar.error(f"Error creating chunk embedding matrix or lookup: {matrix_error}")
@@ -351,6 +369,8 @@ else:
     embeddings_to_plot = None
     labels_to_plot = []
     source_doc_titles_for_plot = None
+    doc_color_map = None # Initialize color map
+    color_categories_for_plot = None # Initialize color categories for plot
 
     if analysis_level == 'Documents':
         # Only consider docs with embeddings for plotting
@@ -358,6 +378,21 @@ else:
         if len(docs_with_embeddings) >= MIN_ITEMS_FOR_PLOT:
              embeddings_to_plot = np.array([doc.embedding for doc in docs_with_embeddings])
              labels_to_plot = [doc.title for doc in docs_with_embeddings]
+
+             # --- Generate color map for documents ---
+             try:
+                unique_titles = sorted(list(set(labels_to_plot)))
+                color_sequence = px.colors.qualitative.Plotly
+                doc_color_map = {title: color_sequence[i % len(color_sequence)] for i, title in enumerate(unique_titles)}
+                st.session_state['doc_color_map'] = doc_color_map # Store for table styling
+                # For plot: use titles as color category, map provides actual colors
+                color_categories_for_plot = labels_to_plot
+             except Exception as e:
+                  st.error(f"Error generating color map for documents: {e}")
+                  color_categories_for_plot = None
+                  doc_color_map = None
+                  st.session_state.pop('doc_color_map', None)
+
         # else: plotting buttons will be disabled
     elif analysis_level == 'Chunks':
         embeddings_to_plot = st.session_state.get('all_chunk_embeddings_matrix')
@@ -365,10 +400,48 @@ else:
         if labels_to_plot:
             # Derive color data from labels stored in session state
             try:
-                source_doc_titles_for_plot = [label.split(' :: ')[0] for label in labels_to_plot]
+                lookup = st.session_state.get('chunk_label_lookup_dict', {})
+                labels_to_plot = st.session_state.get('all_chunk_labels', [])
+                source_doc_titles_full = []
+                color_categories_for_plot = None
+                doc_color_map = {} # Initialize as empty dict
+
+                if lookup and labels_to_plot:
+                     # Extract the stored doc.title (element 1 of the tuple) from the lookup
+                     try:
+                          # Ensure label exists in lookup before accessing
+                          source_doc_titles_full = [lookup[label][1] for label in labels_to_plot if label in lookup]
+                     except (KeyError, IndexError, TypeError) as e:
+                          st.error(f"Error accessing titles from lookup: {e}")
+                          source_doc_titles_full = [] # Reset on error
+
+                # Proceed only if we successfully extracted titles
+                if source_doc_titles_full:
+                    color_categories_for_plot = source_doc_titles_full
+                    try:
+                        # --- Generate color map ---
+                        unique_titles = sorted(list(set(source_doc_titles_full)))
+                        color_sequence = px.colors.qualitative.Plotly
+                        doc_color_map = {title: color_sequence[i % len(color_sequence)] for i, title in enumerate(unique_titles)}
+                        st.session_state['doc_color_map'] = doc_color_map # Store in session state
+                    except Exception as map_e:
+                         st.error(f"Error generating color map: {map_e}")
+                         doc_color_map = {} # Reset to empty on error
+                         color_categories_for_plot = None
+                         st.session_state.pop('doc_color_map', None)
+                else:
+                     # Failed to get titles, ensure map is empty and state is clear
+                     st.warning("Could not derive source document titles for chunk coloring.")
+                     doc_color_map = {}
+                     color_categories_for_plot = None
+                     st.session_state.pop('doc_color_map', None)
+
             except Exception as e:
-                 st.error(f"Error parsing document titles from chunk labels: {e}")
-                 source_doc_titles_for_plot = None # Fallback
+                 # Catch any other unexpected errors in this block
+                 st.error(f"Unexpected error during color setup: {e}")
+                 doc_color_map = {}
+                 color_categories_for_plot = None
+                 st.session_state.pop('doc_color_map', None)
 
     # --- Plotting Buttons ---
     # Ensure we have data before enabling buttons
@@ -396,10 +469,16 @@ else:
                              else:
                                  st.session_state.current_coords_2d = coords_2d
                                  st.session_state.current_labels = labels_to_plot
-                                 color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
+                                 # Use the generated color list if plotting chunks
+                                 # Pass titles for color categories, and map for colors
+                                 color_categories = color_categories_for_plot if analysis_level == 'Chunks' else None
+                                 color_map_arg = doc_color_map if analysis_level == 'Chunks' else None
+
                                  fig_2d = visualization_service.plot_scatter_2d(
                                      coords=coords_2d, labels=labels_to_plot,
-                                     title=f"2D UMAP Projection of {plot_title_suffix}", color_data=color_arg
+                                     title=f"2D UMAP Projection of {plot_title_suffix}", 
+                                     color_categories=color_categories, # Pass titles for legend
+                                     color_discrete_map=color_map_arg # Pass title->color map
                                  )
                                  st.session_state.scatter_fig_2d = fig_2d
                         else:
@@ -426,11 +505,12 @@ else:
                             if coords_3d is None:
                                 st.error("Failed to generate 3D coordinates (check logs for details).")
                             else:
-                                color_arg = source_doc_titles_for_plot if analysis_level == 'Chunks' else None
+                                # Use the generated color list if available (handles both levels)
+                                color_arg = color_categories_for_plot if analysis_level == 'Chunks' else None
                                 fig_3d = visualization_service.plot_scatter_3d(
                                    coords=coords_3d, labels=labels_to_plot,
-                                   title=f"3D UMAP Projection of {plot_title_suffix}"
-                                   # Add color_arg if plot_scatter_3d supports it
+                                   title=f"3D UMAP Projection of {plot_title_suffix}",
+                                   color_data=color_arg # Pass color data
                                 )
                                 st.plotly_chart(fig_3d, use_container_width=True)
                         else:
@@ -545,9 +625,10 @@ with st.expander("View Document/Chunk Structure & Select Chunks for Analysis"):
              else:
                   st.info("Run 'Chunk Loaded Documents' first.")
         else: # Chunk labels exist in session state - proceed to display table & multiselect
-            # --- Build and Display Table --- (Only if chunk labels exist)
+            # --- Build Table Data --- (Only if chunk labels exist)
             table_data = []
             max_chunks = 0
+            doc_titles_in_table = [] # Store original doc titles for styling
             # Build based on actual docs and their chunks attribute
             for doc in st.session_state.documents:
                  if hasattr(doc, 'chunks') and doc.chunks:
@@ -555,7 +636,9 @@ with st.expander("View Document/Chunk Structure & Select Chunks for Analysis"):
 
             if max_chunks > 0: # Ensure we actually have chunks to build the table rows
                 for doc in st.session_state.documents:
-                    row_data = {'Document': doc.title}
+                    # Store the original title for styling lookup later
+                    doc_titles_in_table.append(doc.title)
+                    row_data = {'Document': doc.title} # Use original title here
                     if hasattr(doc, 'chunks') and doc.chunks:
                          for i in range(max_chunks):
                              col_name = f"Chunk {i+1}"
@@ -564,16 +647,26 @@ with st.expander("View Document/Chunk Structure & Select Chunks for Analysis"):
                     else: # Handle docs without chunks attribute or empty chunks list
                          for i in range(max_chunks): row_data[f"Chunk {i+1}"] = "-" # Placeholder
                     table_data.append(row_data)
-            # Else: max_chunks is 0 even though labels exist? Data inconsistency - table won't be built.
 
-            # Display table if data was successfully built
+            # --- Display Table with Styling ---
             if table_data:
                 try:
-                    df = pd.DataFrame(table_data).set_index('Document')
+                    df = pd.DataFrame(table_data) # Keep 'Document' as a column
+
+                    # --- Styling Function ---
+                    # Retrieve color map, provide empty dict fallback
+                    doc_color_map_for_style = st.session_state.get('doc_color_map', {})
+
+                    def get_color_style(doc_title):
+                        color = doc_color_map_for_style.get(doc_title, None) # Get color from map
+                        return f'background-color: {color}' if color else ''
+
+                    # Apply styling to the 'Document' column using Styler.map
                     st.write("Chunk Overview (Context Labels shown):")
-                    st.dataframe(df)
+                    st.dataframe(df.style.map(get_color_style, subset=['Document']))
+
                 except Exception as e:
-                     st.error(f"Error creating structure table: {e}")
+                     st.error(f"Error creating or styling structure table: {e}")
             elif max_chunks == 0:
                 # This case means chunk_labels exist, but no docs actually had > 0 chunks
                 st.info("Chunking process resulted in 0 chunks across all documents (although labels might exist from a previous run). Re-chunk if needed.")
@@ -582,7 +675,7 @@ with st.expander("View Document/Chunk Structure & Select Chunks for Analysis"):
                  st.warning("Chunk labels found, but failed to build table data from document chunks.")
 
 
-            # --- Multiselect Logic (Only if chunk_labels_exist) --- 
+            # --- Multiselect Logic (Only if chunk_labels_exist) ---
             # This code runs regardless of whether the table displayed, as long as chunk_labels_exist was true
             chunk_selection_options = st.session_state.get('all_chunk_labels', []) # Already confirmed this exists
             lookup = st.session_state.get('chunk_label_lookup_dict', {})
@@ -869,3 +962,62 @@ with st.expander("View Computational Matrices Info", expanded=False):
                 st.error("Analysis Service not available.")
     else:
         st.info("Chunk embedding matrix not yet generated. Please generate embeddings.")
+
+# --- Semantic Chunk Graph Section --- 
+st.header("Semantic Chunk Graph")
+
+# Check if prerequisites are met
+chunk_matrix_graph = st.session_state.get('all_chunk_embeddings_matrix')
+chunk_labels_graph = st.session_state.get('all_chunk_labels')
+
+if chunk_matrix_graph is None or not chunk_labels_graph:
+    st.info("Generate embeddings for chunks first to build the semantic graph.")
+elif not analysis_service:
+    st.error("Analysis Service not available.")
+else:
+    # UI Elements
+    similarity_threshold = st.slider(
+        "Similarity Threshold for Graph Edges:",
+        min_value=0.1, max_value=1.0, value=0.7, step=0.05, key="graph_threshold"
+    )
+
+    if st.button("Show Semantic Graph", key="show_graph_button"):
+        with st.spinner(f"Generating graph with threshold {similarity_threshold}..." ):
+            # Generate the NetworkX graph using the service
+            semantic_graph = analysis_service.create_semantic_graph(
+                chunk_matrix_graph, chunk_labels_graph, similarity_threshold=similarity_threshold
+            )
+
+        if semantic_graph:
+            if semantic_graph.number_of_nodes() > 0:
+                st.success(f"Generated graph with {semantic_graph.number_of_nodes()} nodes and {semantic_graph.number_of_edges()} edges.")
+
+                # --- Visualization Option: Graphviz (Static) ---
+                try:
+                    # Limit size for very large graphs if needed
+                    if semantic_graph.number_of_nodes() < 150: # Increase limit slightly
+                        # Convert to Graphviz DOT format and display using st.graphviz_chart
+                        pydot_graph = nx.nx_pydot.to_pydot(semantic_graph)
+                        # --- Add Graphviz layout attributes --- 
+                        pydot_graph.set_graph_defaults(overlap='scale', sep='+5') 
+                        # --- Set layout engine --- 
+                        pydot_graph.set_prog('neato') # Keep neato for now
+                        # --- Convert to string and display --- 
+                        st.graphviz_chart(pydot_graph.to_string()) # Convert to string
+                    else:
+                         st.info(f"Graph too large ({semantic_graph.number_of_nodes()} nodes) for direct Graphviz visualization.")
+
+                except ImportError:
+                     st.warning("Graphviz / pydot not installed. Cannot display static graph. Ensure `pydot` is in requirements.txt")
+                except AttributeError as e:
+                     # Handle potential missing nx.nx_pydot if pydot is faulty
+                     st.warning(f"Could not render graph via pydot. Is `pydot` installed correctly? Error: {e}")
+                except Exception as viz_error:
+                     st.error(f"Error rendering graph: {viz_error}")
+                     import traceback
+                     st.code(traceback.format_exc())
+
+            else:
+                st.info("Graph generated but has no nodes or edges (check threshold and data)." )
+        else:
+            st.error("Failed to generate semantic graph (check logs for details)." )
