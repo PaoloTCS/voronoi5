@@ -1,8 +1,10 @@
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from umap import UMAP
-from typing import Tuple, List, Optional
+from typing import Tuple, List, Optional, Dict
 import networkx as nx # Import networkx
+import matplotlib.colors as mcolors # Add matplotlib imports
+import matplotlib.cm as cm
 
 class AnalysisService:
     """Provides methods for embedding analysis, including similarity calculation, dimensionality reduction, and nearest neighbor search."""
@@ -160,33 +162,39 @@ class AnalysisService:
     def create_semantic_graph(self,
                               embeddings_matrix: np.ndarray,
                               labels: List[str],
+                              source_documents: List[str],
                               similarity_threshold: float = 0.7,
                               similarity_matrix: Optional[np.ndarray] = None
-                             ) -> Optional[nx.Graph]:
+                             ) -> Optional[Tuple[nx.Graph, Dict[str, int]]]:
         """
         Creates a NetworkX graph based on semantic similarity between embeddings.
 
         Args:
             embeddings_matrix: A (n_items, embedding_dim) numpy array.
             labels: A list of labels corresponding to the rows in embeddings_matrix.
+            source_documents: A list of source document identifiers corresponding to labels.
             similarity_threshold: Minimum cosine similarity to create an edge.
             similarity_matrix: (Optional) Pre-computed similarity matrix.
 
         Returns:
-            A NetworkX graph or None if input is invalid.
+            A tuple containing the NetworkX graph and a dictionary of node degrees.
         """
         # Input validation
         if embeddings_matrix is None or embeddings_matrix.ndim != 2:
             print("Error [create_semantic_graph]: Invalid embeddings_matrix provided.")
-            return None
+            return None, None
 
         num_items = embeddings_matrix.shape[0]
         if not isinstance(labels, list) or len(labels) != num_items:
             print("Error [create_semantic_graph]: Number of labels must match number of embeddings.")
-            return None
+            return None, None
         if num_items < 1:
              print("Error [create_semantic_graph]: Need at least one item to create a graph.")
-             return None
+             return None, None
+        # Validate source_documents
+        if not isinstance(source_documents, list) or len(source_documents) != num_items:
+            print("Error [create_semantic_graph]: Number of source documents must match number of embeddings/labels.")
+            return None, None
 
         # Compute similarity matrix if not provided
         if similarity_matrix is None:
@@ -194,21 +202,43 @@ class AnalysisService:
             similarity_matrix = self.calculate_similarity_matrix(embeddings_matrix)
             if similarity_matrix is None:
                  print("Error [create_semantic_graph]: Failed to compute similarity matrix.")
-                 return None
+                 return None, None
             # Check shape consistency just in case
             if similarity_matrix.shape != (num_items, num_items):
                  print(f"Error [create_semantic_graph]: Similarity matrix shape mismatch ({similarity_matrix.shape} vs ({num_items},{num_items}))")
-                 return None
+                 return None, None
 
         print(f"Building graph with similarity threshold: {similarity_threshold}")
         G = nx.Graph()
-        # Add nodes with labels and Graphviz attributes
+
+        # Create color map for documents
+        unique_docs = sorted(list(set(source_documents)))
+        num_docs = len(unique_docs)
+        # Use a qualitative colormap suitable for distinct items
+        try:
+             # Use a qualitative colormap suitable for distinct categories
+             colormap_name = 'tab10' if num_docs <= 10 else ('tab20' if num_docs <= 20 else 'viridis') # Simplified selection
+             colormap = cm.get_cmap(colormap_name, max(1, num_docs)) # Ensure num_docs >= 1 for cmap
+             doc_color_map = {doc_title: mcolors.to_hex(colormap(i)) for i, doc_title in enumerate(unique_docs)}
+        except Exception as cmap_error:
+             print(f"Error creating colormap: {cmap_error}. Using default colors.")
+             # Create a fallback map assigning grey to all docs
+             doc_color_map = {doc_title: "#CCCCCC" for doc_title in unique_docs}
+
+        # Add nodes with labels and Graphviz attributes (including color)
+        print(f"Adding {num_items} nodes with color attributes...")
         for i, label in enumerate(labels):
-            # Restore Graphviz fontsize
-            G.add_node(label, 
-                       index=i, 
-                       fontsize=10) # Restore fontsize for Graphviz node label
-                      # label=label) # label is implicit for pydot
+            doc_title = source_documents[i]
+            # Get color from map, use default grey if title not found (shouldn't happen)
+            node_color = doc_color_map.get(doc_title, "#CCCCCC")
+            # Explicitly add fillcolor and style='filled' attributes
+            try:
+                 G.add_node(label, index=i, fillcolor=node_color, style='filled', fontcolor='black') # Added fontcolor
+                 # print(f"Added node: {label}, color: {node_color}") # Optional debug print
+            except Exception as node_add_error:
+                 print(f"Error adding node {label}: {node_add_error}")
+                 # Add node without color if specific attribute fails? Or skip? Adding basic node.
+                 G.add_node(label, index=i)
 
         # Add edges based on threshold
         # Iterate through the upper triangle of the similarity matrix (excluding diagonal)
@@ -226,5 +256,9 @@ class AnalysisService:
                                # value=score, # Remove Pyvis value
                                # title=f"Similarity: {score:.3f}") # Remove Pyvis title
 
+        # Calculate node degrees
+        degrees = dict(G.degree()) 
+        print(f"Calculated degrees for {len(degrees)} nodes.")
+        
         print(f"Graph created with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
-        return G 
+        return G, degrees 

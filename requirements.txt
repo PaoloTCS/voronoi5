@@ -11,3 +11,5 @@ sentence-transformers
 plotly
 scikit-learn
 pydot
+matplotlib
+graphviz
