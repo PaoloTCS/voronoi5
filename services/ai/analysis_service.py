@@ -1,9 +1,10 @@
 import numpy as np
 from sklearn.metrics.pairwise import cosine_similarity
 from umap import UMAP
-from typing import Tuple, List, Optional, Dict
+from typing import Tuple, List, Optional, Dict, Any, Set
 import networkx as nx # Import networkx
-import matplotlib.colors as mcolors # Add matplotlib imports
+# networkx.community will be accessed directly via nx.community
+import matplotlib.colors as mcolors
 import matplotlib.cm as cm
 
 class AnalysisService:
@@ -161,13 +162,14 @@ class AnalysisService:
 
     def create_semantic_graph(self,
                               embeddings_matrix: np.ndarray,
-                              labels: List[str],
-                              source_documents: List[str],
+                              labels: List[str], # These are SHORT labels
+                              source_documents: List[str], # <<< ADD THIS ARGUMENT
                               similarity_threshold: float = 0.7,
                               similarity_matrix: Optional[np.ndarray] = None
-                             ) -> Optional[Tuple[nx.Graph, Dict[str, int]]]:
+                             ) -> Optional[Tuple[nx.Graph, Dict[str, Any], Optional[List[Set[str]]]]]: # Modified return type
         """
         Creates a NetworkX graph based on semantic similarity between embeddings.
+        Nodes are labeled with the provided (potentially shortened) labels.
 
         Args:
             embeddings_matrix: A (n_items, embedding_dim) numpy array.
@@ -177,24 +179,24 @@ class AnalysisService:
             similarity_matrix: (Optional) Pre-computed similarity matrix.
 
         Returns:
-            A tuple containing the NetworkX graph and a dictionary of node degrees.
+            A tuple containing the NetworkX graph, a dictionary of metrics (degrees, betweenness),
+            and a list of communities (list of sets of node labels), or (None, None, None).
         """
         # Input validation
         if embeddings_matrix is None or embeddings_matrix.ndim != 2:
-            print("Error [create_semantic_graph]: Invalid embeddings_matrix provided.")
-            return None, None
-
+            print("Error [create_semantic_graph]: Invalid embeddings_matrix.")
+            return None, None, None # Modified return
         num_items = embeddings_matrix.shape[0]
         if not isinstance(labels, list) or len(labels) != num_items:
-            print("Error [create_semantic_graph]: Number of labels must match number of embeddings.")
-            return None, None
+            print("Error [create_semantic_graph]: Labels mismatch embeddings.")
+            return None, None, None # Modified return
         if num_items < 1:
-             print("Error [create_semantic_graph]: Need at least one item to create a graph.")
-             return None, None
-        # Validate source_documents
+             print("Error [create_semantic_graph]: Need at least one item.")
+             return None, None, None # Modified return
+        
         if not isinstance(source_documents, list) or len(source_documents) != num_items:
-            print("Error [create_semantic_graph]: Number of source documents must match number of embeddings/labels.")
-            return None, None
+            print("Error [create_semantic_graph]: Number of source documents must match embeddings.")
+            return None, None, None # Modified return
 
         # Compute similarity matrix if not provided
         if similarity_matrix is None:
@@ -202,63 +204,90 @@ class AnalysisService:
             similarity_matrix = self.calculate_similarity_matrix(embeddings_matrix)
             if similarity_matrix is None:
                  print("Error [create_semantic_graph]: Failed to compute similarity matrix.")
-                 return None, None
-            # Check shape consistency just in case
+                 return None, None, None # Modified return
             if similarity_matrix.shape != (num_items, num_items):
-                 print(f"Error [create_semantic_graph]: Similarity matrix shape mismatch ({similarity_matrix.shape} vs ({num_items},{num_items}))")
-                 return None, None
-
-        print(f"Building graph with similarity threshold: {similarity_threshold}")
-        G = nx.Graph()
+                 print(f"Error [create_semantic_graph]: Sim matrix shape mismatch.")
+                 return None, None, None # Modified return
 
         # Create color map for documents
         unique_docs = sorted(list(set(source_documents)))
         num_docs = len(unique_docs)
-        # Use a qualitative colormap suitable for distinct items
+        doc_color_map = {} # Initialize
         try:
-             # Use a qualitative colormap suitable for distinct categories
-             colormap_name = 'tab10' if num_docs <= 10 else ('tab20' if num_docs <= 20 else 'viridis') # Simplified selection
-             colormap = cm.get_cmap(colormap_name, max(1, num_docs)) # Ensure num_docs >= 1 for cmap
-             doc_color_map = {doc_title: mcolors.to_hex(colormap(i)) for i, doc_title in enumerate(unique_docs)}
+            # Use a qualitative colormap
+            colormap_name = 'tab10' if num_docs <= 10 else ('tab20' if num_docs <= 20 else 'viridis')
+            colormap = cm.get_cmap(colormap_name, max(1, num_docs))
+            doc_color_map = {doc_title: mcolors.to_hex(colormap(i)) for i, doc_title in enumerate(unique_docs)}
         except Exception as cmap_error:
-             print(f"Error creating colormap: {cmap_error}. Using default colors.")
-             # Create a fallback map assigning grey to all docs
-             doc_color_map = {doc_title: "#CCCCCC" for doc_title in unique_docs}
+             print(f"Warning: Error creating colormap: {cmap_error}. Using default colors.")
+             doc_color_map = {doc_title: "#CCCCCC" for doc_title in unique_docs} # Fallback
 
-        # Add nodes with labels and Graphviz attributes (including color)
+        print(f"Building graph with threshold: {similarity_threshold}")
+        G = nx.Graph()
+
+        # Add nodes using the provided labels
         print(f"Adding {num_items} nodes with color attributes...")
-        for i, label in enumerate(labels):
+        for i, label in enumerate(labels): # label is the SHORT label
+            # Get the corresponding full source document title
             doc_title = source_documents[i]
-            # Get color from map, use default grey if title not found (shouldn't happen)
-            node_color = doc_color_map.get(doc_title, "#CCCCCC")
-            # Explicitly add fillcolor and style='filled' attributes
+            node_color = doc_color_map.get(doc_title, "#CCCCCC") # Default grey
+
+            # Add node with attributes for Graphviz
             try:
-                 G.add_node(label, index=i, fillcolor=node_color, style='filled', fontcolor='black') # Added fontcolor
-                 # print(f"Added node: {label}, color: {node_color}") # Optional debug print
+                 G.add_node(label, index=i, fillcolor=node_color, style='filled', fontcolor='black')
+                 # print(f"Added node: {label}, color: {node_color}") # Optional debug
             except Exception as node_add_error:
                  print(f"Error adding node {label}: {node_add_error}")
-                 # Add node without color if specific attribute fails? Or skip? Adding basic node.
-                 G.add_node(label, index=i)
+                 G.add_node(label, index=i) # Add basic node on error
 
         # Add edges based on threshold
-        # Iterate through the upper triangle of the similarity matrix (excluding diagonal)
+        edge_count = 0
         for i in range(num_items):
             for j in range(i + 1, num_items):
                 similarity = similarity_matrix[i, j]
-                # Ensure similarity is treated as float for comparison
                 if float(similarity) >= similarity_threshold:
                     score = float(similarity)
-                    # Restore edge attributes for Graphviz
-                    G.add_edge(labels[i], labels[j], 
-                               weight=round(score, 4), 
-                               label=f"{score:.2f}", # Keep label for edge
-                               fontsize=8) # Restore fontsize for Graphviz edge label
-                               # value=score, # Remove Pyvis value
-                               # title=f"Similarity: {score:.3f}") # Remove Pyvis title
+                    G.add_edge(labels[i], labels[j],
+                               weight=round(score, 4),
+                               label=f"{score:.2f}", # Label for Graphviz edge
+                               fontsize=8) # For Graphviz edge
+                    edge_count +=1
 
         # Calculate node degrees
-        degrees = dict(G.degree()) 
+        degrees = dict(G.degree())
         print(f"Calculated degrees for {len(degrees)} nodes.")
-        
-        print(f"Graph created with {G.number_of_nodes()} nodes and {G.number_of_edges()} edges.")
-        return G, degrees 
+
+        try:
+             print("Calculating betweenness centrality...")
+             # Calculate unweighted betweenness for simplicity first
+             betweenness = nx.betweenness_centrality(G, normalized=True, endpoints=False)
+             print(f"Calculated betweenness for {len(betweenness)} nodes.")
+        except Exception as e:
+             print(f"Error calculating betweenness centrality: {e}")
+             betweenness = {} # Return empty dict on error
+
+        # --- Prepare return dictionary for metrics ---
+        graph_metrics = {
+            'degrees': degrees,
+            'betweenness': betweenness
+            # Communities will be returned separately
+        }
+
+        communities_list = [] # Initialize
+        try:
+             print("Detecting communities using Louvain method...")
+             # Pass the graph G, use weight=None for unweighted, or 'weight' if desired
+             detected_communities_sets = nx.community.louvain_communities(G, weight=None, seed=42)
+             # Convert frozensets to regular sets of strings (node labels)
+             communities_list = [set(community_fset) for community_fset in detected_communities_sets]
+             print(f"Detected {len(communities_list)} communities.")
+        except ImportError: # This might catch if python-louvain is not found by networkx
+            print("Warning: Community detection may require 'python-louvain'. Please ensure it's installed (`pip install python-louvain`). Skipping community detection.")
+            communities_list = None
+        except Exception as e:
+             print(f"Error during community detection: {e}")
+             communities_list = None # Indicate failure
+
+        print(f"Graph created: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges (Counted: {edge_count}).")
+        # Modify the return statement
+        return G, graph_metrics, communities_list # Return graph, metrics dict, and list of communities 

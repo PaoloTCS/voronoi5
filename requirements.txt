@@ -13,3 +13,8 @@ scikit-learn
 pydot
 matplotlib
 graphviz
+scipy
+requests
+gmpy2
+watchdog
+python-louvain

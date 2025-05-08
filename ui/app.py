@@ -11,13 +11,25 @@ import plotly.express as px # Add import for colors
 import streamlit.components.v1 as components # Import Streamlit components
 import graphviz # <<< Add graphviz import
 
+# --- Path Setup for Sibling Module Imports ---
+import sys
+# Add the project root directory to sys.path to allow sibling module imports
+# e.g., for 'models' directory when running app.py from 'ui' directory.
+# os.path.abspath(__file__) gives the path to app.py
+# os.path.dirname(...) gives the 'ui' directory
+# os.path.join(..., '..') goes up one level to the project root
+_project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+# --- End Path Setup ---
+
 # Project Modules
 from models.document import Document
 from models.chunk import Chunk
-from services.embedding_service import EmbeddingService
-from services.analysis_service import AnalysisService
-from services.visualization_service import VisualizationService
-from services.chunking_service import ContextualChunker
+from services.ai.embedding_service import EmbeddingService
+from services.ai.analysis_service import AnalysisService
+from visualization.scatter_plotter import VisualizationService
+from services.ai.text_processor import ContextualChunker
 
 # --- Configuration & Constants ---
 # SAMPLE_DOCS removed for brevity, assume they exist if needed later
@@ -905,8 +917,177 @@ else:
                     st.error(traceback.format_exc()) # Print full traceback for debugging
 
 
+# --- Semantic Chunk Graph Section --- (Place appropriately in UI logic)
+st.header("Semantic Chunk Graph")
+
+# Check prerequisites
+# Use the keys for the centralized chunk data
+chunk_matrix_graph = st.session_state.get('all_chunk_embeddings_matrix')
+chunk_labels_graph = st.session_state.get('all_chunk_labels')
+analysis_service = load_analysis_service() # Ensure service is loaded
+
+# Initialize graph-related variables outside the button click
+semantic_graph, graph_metrics, communities = None, {}, None
+node_degrees, node_betweenness = {}, {}
+
+if chunk_matrix_graph is None or not chunk_labels_graph:
+    st.info("Generate embeddings for chunks first to build the semantic graph.")
+elif not analysis_service:
+    st.error("Analysis Service not available.")
+else:
+    # UI Elements
+    similarity_threshold = st.slider(
+        "Similarity Threshold for Graph Edges:",
+        min_value=0.1, max_value=1.0, value=0.7, step=0.05, key="graph_threshold"
+    )
+
+    if st.button("Show Semantic Graph", key="show_graph_button"):
+         # Retrieve data from session state (already checked existence)
+         labels = st.session_state.get('all_chunk_labels') # Short labels
+         embeddings = st.session_state.get('all_chunk_embeddings_matrix')
+         lookup = st.session_state.get('chunk_label_lookup_dict', {}) # {short_label: (chunk_obj, doc_title)}
+         source_docs_for_graph = None # Initialize
+
+         if labels and embeddings is not None and lookup:
+              try:
+                  # Derive source documents reliably using the lookup dict
+                  source_docs_for_graph = [lookup[label][1] for label in labels if label in lookup]
+                  # Basic validation
+                  if len(source_docs_for_graph) != len(labels):
+                       st.warning("Mismatch generating source doc list for graph. Coloring might be inaccurate.")
+                       source_docs_for_graph = [label.split('::')[0] for label in labels] # Fallback
+              except Exception as e:
+                   st.error(f"Failed to prepare source document list for graph coloring: {e}")
+                   source_docs_for_graph = None
+
+         graph_data = None
+         if labels and embeddings is not None and source_docs_for_graph:
+             with st.spinner(f"Generating graph with threshold {similarity_threshold}..."):
+                 graph_data = analysis_service.create_semantic_graph(
+                     embeddings,
+                     labels, 
+                     source_documents=source_docs_for_graph, 
+                     similarity_threshold=similarity_threshold
+                 )
+         elif not (labels and embeddings and lookup):
+             st.error("Chunk embedding data (labels, matrix, or lookup) is missing. Please regenerate embeddings.")
+         elif not source_docs_for_graph:
+             pass 
+
+         # Unpack graph_data if it was successfully generated
+         if graph_data: 
+             if len(graph_data) == 3:
+                  semantic_graph, graph_metrics, communities = graph_data 
+                  node_degrees = graph_metrics.get('degrees', {})
+                  node_betweenness = graph_metrics.get('betweenness', {})
+             else:
+                  st.error("Graph generation service returned unexpected data format.")
+                  # Reset to ensure clean state if unpacking failed
+                  semantic_graph, graph_metrics, communities = None, {}, None
+                  node_degrees, node_betweenness = {}, {}
+         elif labels and embeddings is not None and source_docs_for_graph: # graph_data is None but inputs were ok
+             st.error("Failed to generate semantic graph data from service (service returned None).")
+             # Reset to ensure clean state
+             semantic_graph, graph_metrics, communities = None, {}, None
+             node_degrees, node_betweenness = {}, {}
+
+    # Display graph and metrics if semantic_graph is not None
+    # This section will now always have node_degrees and node_betweenness initialized
+    if semantic_graph:
+        if semantic_graph.number_of_nodes() > 0:
+            st.success(f"Generated graph with {semantic_graph.number_of_nodes()} nodes and {semantic_graph.number_of_edges()} edges.")
+            # --- Visualization Option: Graphviz (Static, with COLOR) ---
+            try:
+                if semantic_graph.number_of_nodes() < 150:
+                    pydot_graph = nx.nx_pydot.to_pydot(semantic_graph)
+                    pydot_graph.set_graph_defaults(overlap='scale', sep='+5', splines='true')
+                    pydot_graph.set_node_defaults(shape='ellipse')
+                    pydot_graph.set_prog('neato')
+                    st.graphviz_chart(pydot_graph.to_string())
+                else:
+                    st.info(f"Graph too large ({semantic_graph.number_of_nodes()} nodes) for direct Graphviz visualization.")
+            except ImportError:
+                st.warning("Graphviz / pydot not installed. Cannot display static graph. Ensure `pydot` is in requirements.txt")
+            except AttributeError as e:
+                st.warning(f"Could not render graph via pydot. Is `pydot` installed correctly? Error: {e}")
+            except Exception as viz_error:
+                st.error(f"Error rendering graph: {viz_error}")
+
+            # --- Display Top N Degrees ---
+            if node_degrees:
+                st.subheader("Top Connected Chunks (Highest Degree)")
+                sorted_degrees = sorted(node_degrees.items(), key=lambda item: item[1], reverse=True)
+                top_n = 10
+                degrees_to_display = sorted_degrees[:top_n]
+                if not degrees_to_display or all(deg == 0 for _, deg in degrees_to_display):
+                    st.info("No nodes with connections found at this threshold.")
+                else:
+                    degree_data = [{"Chunk Label": label, "Degree (Connections)": degree}
+                                   for label, degree in degrees_to_display if degree > 0]
+                    if degree_data:
+                        degree_df = pd.DataFrame(degree_data)
+                        st.dataframe(degree_df, use_container_width=True, hide_index=True)
+                    else:
+                        st.info("Top nodes have 0 connections at this threshold.")
+            else:
+                st.warning("Node degrees were not calculated.")
+
+            # --- Display Top N Betweenness ---
+            if node_betweenness:
+                 st.subheader("Top Bridge Chunks (Highest Betweenness Centrality)")
+                 # Sort betweenness by value descending
+                 sorted_betweenness = sorted(node_betweenness.items(), key=lambda item: item[1], reverse=True)
+
+                 # Display top N (e.g., 10)
+                 top_n_bw = 10
+                 betweenness_to_display = sorted_betweenness[:top_n_bw]
+
+                 if not betweenness_to_display or all(bw == 0 for _, bw in betweenness_to_display):
+                      st.info("No significant bridge nodes found (betweenness centrality is zero or near zero).")
+                 else:
+                      # Prepare data for table display
+                      betweenness_data = [{
+                          "Chunk Label": label,
+                          "Betweenness Centrality": f"{centrality:.4f}" # Format for display
+                      } for label, centrality in betweenness_to_display if centrality > 0] # Only show if > 0
+
+                      if betweenness_data:
+                           betweenness_df = pd.DataFrame(betweenness_data)
+                           st.dataframe(betweenness_df, use_container_width=True, hide_index=True)
+                      else:
+                            st.info("Top nodes have zero betweenness centrality.")
+            else:
+                st.warning("Betweenness centrality was not calculated.")
+            # --- End Betweenness Display ---
+
+            # --- Display Detected Communities ---
+            if communities is not None: # Check if community detection ran successfully
+                 st.subheader(f"Detected Communities ({len(communities)})")
+                 if not communities:
+                      st.info("No distinct communities found at this threshold/resolution.")
+                 else:
+                      # Sort communities by size (descending) for display
+                      communities.sort(key=len, reverse=True)
+                      for i, community_set in enumerate(communities):
+                           community_list = sorted(list(community_set)) # Sort members alphabetically
+                           with st.expander(f"Community {i+1} ({len(community_list)} members)"):
+                                # Display first N members for brevity
+                                max_members_to_show = 15
+                                st.write(community_list[:max_members_to_show])
+                                if len(community_list) > max_members_to_show:
+                                     st.caption("... (more members hidden)")
+            elif communities is None:
+                 # Explicit message if detection failed (e.g., missing library)
+                 st.warning("Community detection did not run (check logs/dependencies like 'python-louvain').")
+            # --- End Community Display ---
+
+            st.markdown("---") 
+        else:
+            st.info("Graph generated but has no nodes or edges (check threshold and data).")
+         # If semantic_graph is None, an error was already shown above.
+
 # --- Display loaded documents details ---
-with st.expander("View Loaded Documents", expanded=False): # Set expanded=False by default
+with st.expander("View Loaded Documents", expanded=False):
     if st.session_state.documents:
         for i, doc in enumerate(st.session_state.documents):
             embed_status = "Yes" if doc.embedding is not None else "No"
@@ -963,244 +1144,3 @@ with st.expander("View Computational Matrices Info", expanded=False):
                 st.error("Analysis Service not available.")
     else:
         st.info("Chunk embedding matrix not yet generated. Please generate embeddings.")
-
-# --- Semantic Chunk Graph Section --- 
-st.header("Semantic Chunk Graph")
-
-# Check if prerequisites are met
-chunk_matrix_graph = st.session_state.get('all_chunk_embeddings_matrix')
-chunk_labels_graph = st.session_state.get('all_chunk_labels')
-
-if chunk_matrix_graph is None or not chunk_labels_graph:
-    st.info("Generate embeddings for chunks first to build the semantic graph.")
-elif not analysis_service:
-    st.error("Analysis Service not available.")
-else:
-    # UI Elements
-    similarity_threshold = st.slider(
-        "Similarity Threshold for Graph Edges:",
-        min_value=0.1, max_value=1.0, value=0.7, step=0.05, key="graph_threshold"
-    )
-
-    if st.button("Show Semantic Graph", key="show_graph_button"):
-        with st.spinner(f"Generating graph with threshold {similarity_threshold}..." ):
-            # Prepare data for graph generation
-            labels = st.session_state.get('all_chunk_labels')
-            embeddings = st.session_state.get('all_chunk_embeddings_matrix')
-            lookup = st.session_state.get('chunk_label_lookup_dict', {})
-            source_docs_for_graph = None # Initialize
-
-            if labels and embeddings is not None and lookup:
-                 try:
-                     # Derive source documents reliably from the lookup dictionary
-                     # lookup stores (chunk, doc.title)
-                     source_docs_for_graph = [lookup[label][1] for label in labels if label in lookup]
-                     if len(source_docs_for_graph) != len(labels):
-                          st.warning("Mismatch between labels and lookup keys when deriving source documents for graph.")
-                          # Attempt fallback parsing (less reliable)
-                          source_docs_for_graph = [label.split('::')[0] for label in labels]
-
-                 except Exception as e:
-                      st.error(f"Failed to parse source documents from chunk labels: {e}")
-                      source_docs_for_graph = None # Ensure it's None on error
-
-            # Proceed only if we have all necessary data
-            graph_data = None # Initialize graph_data
-            if labels and embeddings is not None and source_docs_for_graph:
-                # Generate the NetworkX graph using the service
-                graph_data = analysis_service.create_semantic_graph(
-                    embeddings,
-                    labels,
-                    source_documents=source_docs_for_graph, # <<< PASS THE NEW ARGUMENT
-                    similarity_threshold=similarity_threshold
-                )
-            else:
-                 st.error("Missing data required for graph generation (embeddings, labels, or source docs).")
-                 # graph_data is already None from initialization
-
-        # Check if data was returned (graph_data is a tuple or None)
-        if graph_data and graph_data[0] is not None:
-            semantic_graph, node_degrees = graph_data # Unpack the tuple
-        else:
-            semantic_graph = None # Ensure graph is None if creation failed
-            node_degrees = None
-            st.error("Failed to generate semantic graph data.") # Updated error
-
-        # Proceed only if graph was created successfully
-        if semantic_graph:
-            if semantic_graph.number_of_nodes() > 0:
-                st.success(f"Generated graph with {semantic_graph.number_of_nodes()} nodes and {semantic_graph.number_of_edges()} edges.")
-
-                # --- Visualization Option: Graphviz (Static) ---
-                try:
-                    # Limit size for very large graphs if needed
-                    if semantic_graph.number_of_nodes() < 150: # Increase limit slightly
-                        st.subheader("Interactive Network Graph")
-                        
-                        # Create Plotly network graph
-                        try:
-                            import plotly.graph_objects as go
-                            import networkx as nx
-                            
-                            # Get positions using networkx spring layout
-                            pos = nx.spring_layout(semantic_graph, seed=42)
-                            
-                            # Extract node positions, colors, and labels
-                            node_x = []
-                            node_y = []
-                            node_colors = []
-                            node_labels = []
-                            node_sizes = []
-                            node_info = []
-                            
-                            # Get a color map for document sources
-                            doc_colors = {}
-                            unique_docs = sorted(list(set(source_docs_for_graph)))
-                            color_sequence = px.colors.qualitative.Plotly
-                            for i, doc_title in enumerate(unique_docs):
-                                doc_colors[doc_title] = color_sequence[i % len(color_sequence)]
-                            
-                            # Organize nodes by document source
-                            nodes_by_doc = {doc: {'x': [], 'y': [], 'info': [], 'sizes': []} for doc in unique_docs}
-                            
-                            # Collect node data
-                            for node in semantic_graph.nodes():
-                                x, y = pos[node]
-                                
-                                # Get node metadata (requires a mapping from label to source doc)
-                                node_idx = list(semantic_graph.nodes()).index(node)
-                                if node_idx < len(source_docs_for_graph):
-                                    doc_title = source_docs_for_graph[node_idx]
-                                    short_title = doc_title[:15] + '...' if len(doc_title) > 15 else doc_title
-                                    info = f"Doc: {short_title}<br>Chunk: {node}"
-                                    
-                                    # Set node size based on degree (connections)
-                                    degree = semantic_graph.degree[node]
-                                    size = 10 + degree * 2  # Base size + bonus for connections
-                                    
-                                    # Add to the appropriate document group
-                                    nodes_by_doc[doc_title]['x'].append(x)
-                                    nodes_by_doc[doc_title]['y'].append(y)
-                                    nodes_by_doc[doc_title]['info'].append(info)
-                                    nodes_by_doc[doc_title]['sizes'].append(size)
-                                
-                            # Create edges
-                            edge_x = []
-                            edge_y = []
-                            
-                            for edge in semantic_graph.edges():
-                                x0, y0 = pos[edge[0]]
-                                x1, y1 = pos[edge[1]]
-                                edge_x.extend([x0, x1, None])
-                                edge_y.extend([y0, y1, None])
-                            
-                            # Create edge trace
-                            edge_trace = go.Scatter(
-                                x=edge_x, y=edge_y,
-                                line=dict(width=0.7, color='#888'),
-                                hoverinfo='none',
-                                mode='lines',
-                                showlegend=False
-                            )
-                            
-                            # Create node traces - one per document for proper legend
-                            node_traces = []
-                            for doc_title, node_data in nodes_by_doc.items():
-                                if node_data['x']:  # Only create trace if document has nodes
-                                    node_trace = go.Scatter(
-                                        x=node_data['x'], 
-                                        y=node_data['y'],
-                                        mode='markers',
-                                        name=doc_title,  # This will show in the legend
-                                        marker=dict(
-                                            color=doc_colors[doc_title],
-                                            size=node_data['sizes'],
-                                            line=dict(width=1, color='#333')
-                                        ),
-                                        text=node_data['info'],
-                                        hovertemplate='%{text}<extra></extra>',
-                                        showlegend=True  # Force legend to show
-                                    )
-                                    node_traces.append(node_trace)
-                            
-                            # Create figure with all traces
-                            traces = [edge_trace] + node_traces
-                            fig = go.Figure(
-                                data=traces,
-                                layout=go.Layout(
-                                    showlegend=True,  # Enable legend
-                                    legend=dict(
-                                        orientation="h",  # Horizontal legend
-                                        yanchor="bottom",
-                                        y=1.02,  # Position above the plot
-                                        xanchor="center",
-                                        x=0.5,
-                                        title=dict(text="Document Source")
-                                    ),
-                                    hovermode='closest',
-                                    margin=dict(b=10, l=5, r=5, t=40),  # Add top margin for legend
-                                    xaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                    yaxis=dict(showgrid=False, zeroline=False, showticklabels=False),
-                                    height=600,
-                                    plot_bgcolor='#ffffff'
-                                )
-                            )
-                            
-                            # Display the Plotly graph
-                            st.plotly_chart(fig, use_container_width=True)
-                            
-                            # Remove the custom HTML legend as we now use Plotly's native legend
-                            # st.subheader("Document Color Legend")
-                            # legend_html = ...  # Removed
-
-                        except ImportError as imp_err:
-                            st.error(f"Could not create Plotly graph: Missing dependencies - {imp_err}")
-                        except Exception as plot_err:
-                            st.error(f"Error creating interactive graph: {plot_err}")
-                            import traceback
-                            st.code(traceback.format_exc())
-                            
-                    else:
-                         st.info(f"Graph too large ({semantic_graph.number_of_nodes()} nodes) for visualization.")
-
-                except ImportError:
-                     st.warning("NetworkX/Plotly not installed. Cannot display graph. Ensure `networkx` and `plotly` are in requirements.txt")
-                except AttributeError as e:
-                     # Handle potential missing nx functions
-                     st.warning(f"Could not generate graph layout. Error: {e}")
-                except Exception as viz_error:
-                     st.error(f"Error rendering graph: {viz_error}")
-                     import traceback
-                     st.code(traceback.format_exc())
-
-                # --- Display Top N Degrees --- 
-                if node_degrees:
-                     st.subheader("Top Connected Chunks (Highest Degree)")
-                     # Sort degrees by value (degree count) descending
-                     sorted_degrees = sorted(node_degrees.items(), key=lambda item: item[1], reverse=True)
-
-                     # Display top N (e.g., 10)
-                     top_n = 10
-                     degrees_to_display = sorted_degrees[:top_n]
-
-                     if not degrees_to_display or all(deg == 0 for _, deg in degrees_to_display):
-                          st.info("No nodes with connections found at this threshold, or top nodes have 0 connections.")
-                     else:
-                          # Prepare data for table display
-                          degree_data = [{
-                              "Chunk Label": label, 
-                              "Degree (Connections)": degree
-                          } for label, degree in degrees_to_display if degree > 0] # Only show if degree > 0
-                          
-                          if degree_data: # Check if any nodes actually have connections
-                               degree_df = pd.DataFrame(degree_data) # Use pandas for nice table
-                               st.dataframe(degree_df, use_container_width=True, hide_index=True)
-                          else:
-                               st.info("Top nodes have 0 connections at this threshold.")
-                else:
-                    st.warning("Node degrees were not calculated.")
-                 # --- End Degree Display ---
-
-            else:
-                st.info("Graph generated but has no nodes or edges (check threshold and data)." )
-        # Removed the separate else for failed graph generation, handled by check above

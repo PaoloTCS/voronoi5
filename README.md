@@ -43,6 +43,7 @@ Voronoi4 is an enhanced version of the Semantic Voronoi Tessellation Explorer, b
 4. Start the application:
    1. - ~/VerbumTechnologies/Voronoi3/backend% npm run dev 
    2. -~/VerbumTechnologies/Voronoi3/frontend% npm start  
+   3. -----  Command is : streamlit run ui/app.py
    
 ## Usage
 

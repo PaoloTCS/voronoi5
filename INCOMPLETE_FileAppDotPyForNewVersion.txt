@@ -1,0 +1,640 @@
+{
+  `path`: `/Users/paolopignatelli/Desktop/verbum5-c/app.py`,
+  `content`: `import streamlit as st
+import numpy as np
+import os
+import io
+import pandas as pd
+from typing import List, Tuple, Optional
+from PyPDF2 import PdfReader
+import networkx as nx
+import plotly.express as px
+import streamlit.components.v1 as components
+import uuid
+from datetime import datetime
+
+# Project Modules
+from models.document import Document
+from models.chunk import Chunk
+from models.comparison import ComparisonResult
+from services.embedding_service import EmbeddingService
+from services.analysis_service import AnalysisService
+from services.visualization_service import VisualizationService
+from services.chunking_service import ContextualChunker
+from services.comparison_service import ComparisonService
+
+# --- Configuration & Constants ---
+DEFAULT_K = 3
+MIN_ITEMS_FOR_PLOT = 4  # Minimum items needed for a meaningful plot
+
+# --- Service Initialization with Caching ---
+@st.cache_resource
+def load_embedding_service():
+    try:
+        return EmbeddingService()
+    except Exception as e:
+        st.error(f\"Error loading Embedding Service: {e}\")
+        return None
+
+@st.cache_resource
+def load_analysis_service():
+    return AnalysisService()
+
+@st.cache_resource
+def load_visualization_service():
+    return VisualizationService()
+
+@st.cache_resource
+def load_chunker(_embedding_service, _analysis_service):
+    \"\"\"Loads the ContextualChunker, ensuring dependencies are met.\"\"\"
+    if not _embedding_service or not _analysis_service:
+        st.error(\"Cannot initialize Chunker: Embedding or Analysis service failed to load.\")
+        return None
+    try:
+        return ContextualChunker(embedding_service=_embedding_service, analysis_service=_analysis_service)
+    except Exception as e:
+        st.error(f\"Error loading Contextual Chunker: {e}\")
+        return None
+
+@st.cache_resource
+def load_comparison_service(_embedding_service, _analysis_service):
+    \"\"\"Loads the ComparisonService, ensuring dependencies are met.\"\"\"
+    if not _embedding_service or not _analysis_service:
+        st.error(\"Cannot initialize ComparisonService: Embedding or Analysis service failed to load.\")
+        return None
+    try:
+        return ComparisonService(embedding_service=_embedding_service, analysis_service=_analysis_service)
+    except Exception as e:
+        st.error(f\"Error loading Comparison Service: {e}\")
+        return None
+
+# Load services
+embedding_service = load_embedding_service()
+analysis_service = load_analysis_service()
+visualization_service = load_visualization_service()
+chunker = load_chunker(embedding_service, analysis_service)
+comparison_service = load_comparison_service(embedding_service, analysis_service)
+
+# --- Session State Initialization ---
+def initialize_session_state():
+    defaults = {
+        'documents': [],
+        'embeddings_generated': False,
+        'all_chunk_embeddings_matrix': None,
+        'all_chunk_labels': [],
+        'chunk_label_lookup_dict': {},
+        'analysis_level': 'Documents',
+        'scatter_fig_2d': None,
+        'current_coords_2d': None,
+        'current_labels': [],
+        'coords_3d': None,
+        'comparison_results': [],
+        'active_tab': 'Upload',
+        'selected_comparison_index': 0,
+    }
+    for key, value in defaults.items():
+        if key not in st.session_state:
+            st.session_state[key] = value
+
+initialize_session_state()
+
+# --- Helper Functions ---
+def reset_derived_data(clear_docs=False):
+    \"\"\"Clears embeddings, chunks, derived data. Optionally clears documents too.\"\"\"
+    if clear_docs:
+        st.session_state.documents = []
+    else:
+        # Only clear derived data from docs if keeping them
+        for doc in st.session_state.documents:
+            doc.embedding = None
+            if hasattr(doc, 'chunks'):
+                doc.chunks = []
+
+    # Reset all derived state regardless
+    st.session_state.embeddings_generated = False
+    st.session_state.coords_2d = None
+    st.session_state.coords_3d = None
+    st.session_state.all_chunk_embeddings_matrix = None
+    st.session_state.all_chunk_labels = []
+    st.session_state.chunk_label_lookup_dict = {}
+    st.session_state.analysis_level = 'Documents'  # Default level
+    st.session_state.scatter_fig_2d = None
+    st.session_state.current_coords_2d = None
+    st.session_state.current_labels = []
+    
+    # Don't clear comparison results by default
+    # Clear them only if explicitly requested or when clearing documents
+
+# --- Streamlit App UI ---
+st.title(\"Verbum5-c Document Analysis Tool\")
+
+# Create tabs for different functionality
+tabs = [\"Upload\", \"Process\", \"Visualize\", \"Document Comparison\", \"About\"]
+active_tab = st.radio(\"Navigation\", tabs, horizontal=True, key=\"nav_tabs\")
+st.session_state.active_tab = active_tab
+
+# --- Upload Tab ---
+if st.session_state.active_tab == \"Upload\":
+    st.header(\"Document Loading\")
+
+    uploaded_files = st.file_uploader(
+        \"Upload Documents (TXT or PDF)\",
+        type=['txt', 'pdf'],
+        accept_multiple_files=True,
+        key=\"file_uploader\"
+    )
+
+    if st.button(\"Process Uploaded Files\"):
+        if uploaded_files:
+            new_docs_added = []
+            current_doc_names = {doc.title for doc in st.session_state.documents}
+            should_reset_derived = False
+
+            for uploaded_file in uploaded_files:
+                if uploaded_file.name in current_doc_names:
+                    st.warning(f\"Skipping '{uploaded_file.name}': Name already exists.\")
+                    continue
+
+                text = \"\"
+                try:
+                    if uploaded_file.type == 'application/pdf':
+                        reader = PdfReader(uploaded_file)
+                        text = \"\".join(page.extract_text() for page in reader.pages if page.extract_text())
+                        if not text:
+                            st.error(f\"Could not extract text from PDF '{uploaded_file.name}'. Skipping.\")
+                            continue
+                    elif uploaded_file.type == 'text/plain':
+                        text = uploaded_file.getvalue().decode(\"utf-8\")
+                    else:
+                        st.error(f\"Unsupported file type: {uploaded_file.type} for '{uploaded_file.name}'\")
+                        continue
+
+                    new_doc = Document(
+                        title=uploaded_file.name, content=text,
+                        metadata={'source': 'upload', 'type': uploaded_file.type, 'size': uploaded_file.size}
+                    )
+                    new_docs_added.append(new_doc)
+                    current_doc_names.add(uploaded_file.name)
+                    st.success(f\"Processed '{uploaded_file.name}'\")
+                    should_reset_derived = True
+
+                except Exception as e:
+                    st.error(f\"Error processing file '{uploaded_file.name}': {e}\")
+
+            if new_docs_added:
+                if should_reset_derived:
+                    print(\"New documents added, resetting derived data (embeddings, plots, matrices).\")
+                    reset_derived_data(clear_docs=False)
+
+                st.session_state.documents = st.session_state.documents + new_docs_added
+                st.info(f\"Added {len(new_docs_added)} new documents.\")
+                st.rerun()
+        else:
+            st.warning(\"No files selected in the uploader to process.\")
+
+    if st.button(\"Clear All Documents\"):
+        reset_derived_data(clear_docs=True)
+        st.session_state.comparison_results = []  # Also clear comparison results
+        st.info(\"All loaded documents and data cleared.\")
+        st.rerun()
+
+    st.caption(\"Use the 'x' in the uploader UI to remove selected files before processing.\")
+
+    # Display loaded documents in an expandable section
+    with st.expander(\"View Loaded Documents\", expanded=True):
+        if st.session_state.documents:
+            for i, doc in enumerate(st.session_state.documents):
+                embed_status = \"Yes\" if doc.embedding is not None else \"No\"
+                st.markdown(f\"**{i+1}. {doc.title}** - Doc Embedding: {embed_status}\")
+
+                if hasattr(doc, 'chunks') and doc.chunks:
+                    chunk_embed_counts = sum(1 for chunk in doc.chunks if chunk.embedding is not None)
+                    st.markdown(f\"    Chunks: {len(doc.chunks)} ({chunk_embed_counts} embedded)\")
+                elif hasattr(doc, 'chunks'):
+                    st.markdown(\"    Chunks: 0\")
+                else:
+                    st.markdown(\"    Chunks: Not Processed\")
+                st.divider()
+        else:
+            st.write(\"No documents loaded.\")
+
+# --- Process Tab ---
+elif st.session_state.active_tab == \"Process\":
+    st.header(\"Document Processing\")
+
+    if not st.session_state.documents:
+        st.info(\"Upload documents first in the Upload tab.\")
+    else:
+        st.write(f\"**{len(st.session_state.documents)}** documents loaded and ready for processing.\")
+
+        # Chunking Button
+        if st.button(\"Chunk Loaded Documents\", disabled=not chunker):
+            if chunker and st.session_state.documents:
+                updated_documents = []
+                error_occurred = False
+                try:
+                    with st.spinner(\"Chunking documents...\"):
+                        for doc in st.session_state.documents:
+                            try:
+                                if not hasattr(doc, 'chunks'): doc.chunks = []
+                                doc.chunks = chunker.chunk_document(doc)
+                                updated_documents.append(doc)
+                            except Exception as e:
+                                st.error(f\"Error chunking doc '{doc.title}': {e}\")
+                                updated_documents.append(doc)  # Keep original doc on error
+                                error_occurred = True
+
+                    st.session_state.documents = updated_documents
+                    msg = f\"Chunking complete for {len(st.session_state.documents)} documents.\"
+                    if error_occurred:
+                        st.warning(msg + \" (with errors)\")
+                    else:
+                        st.success(msg)
+
+                except Exception as e:
+                    st.error(f\"An unexpected error occurred during chunking: {e}\")
+
+                # Reset state and rerun
+                reset_derived_data(clear_docs=False)
+                st.rerun()
+
+            elif not chunker:
+                st.error(\"Chunking Service not available.\")
+            else:
+                st.warning(\"No documents loaded to chunk.\")
+
+        # Embedding Button
+        if st.button(\"Generate Embeddings\", disabled=not embedding_service):
+            if embedding_service and st.session_state.documents:
+                try:
+                    with st.spinner(\"Generating embeddings for documents and chunks...\"):
+                        docs_processed_count = 0
+                        chunks_processed_count = 0
+                        error_occurred = False
+                        updated_documents = list(st.session_state.documents)  # Work on a copy
+
+                        for doc in updated_documents:
+                            # 1. Process Document Embedding
+                            if doc.embedding is None:
+                                try:
+                                    doc.embedding = embedding_service.generate_embedding(doc.content)
+                                    if doc.embedding is not None: docs_processed_count += 1
+                                except Exception as e:
+                                    st.error(f\"Error embedding doc '{doc.title}': {e}\")
+                                    error_occurred = True
+
+                            # 2. Process Chunk Embeddings (if chunks exist)
+                            if hasattr(doc, 'chunks') and doc.chunks:
+                                for chunk in doc.chunks:
+                                    if chunk.embedding is None:
+                                        try:
+                                            chunk.embedding = embedding_service.generate_embedding(chunk.content)
+                                            if chunk.embedding is not None: chunks_processed_count += 1
+                                        except Exception as e:
+                                            st.error(f\"Error embedding chunk in doc '{doc.title}': {e}\")
+                                            error_occurred = True
+
+                        # Update session state with modified documents
+                        st.session_state.documents = updated_documents
+
+                    # --- Post-processing: Create and store chunk matrix ---
+                    all_chunk_embeddings_list = []
+                    all_chunk_labels_list = []
+                    chunk_label_lookup_dict = {}
+                    print(\"Consolidating chunk embeddings into matrix and creating lookup...\")
+                    
+                    if st.session_state.documents:
+                        for doc in st.session_state.documents:
+                            if hasattr(doc, 'chunks') and doc.chunks:
+                                for i, chunk in enumerate(doc.chunks):
+                                    if chunk.embedding is not None:
+                                        all_chunk_embeddings_list.append(chunk.embedding)
+                                        
+                                        # Create shorter label for display
+                                        short_title = doc.title[:10] + ('...' if len(doc.title) > 10 else '')
+                                        short_context = chunk.context_label[:15] + ('...' if len(chunk.context_label) > 15 else '')
+                                        short_label = f\"{short_title}::C{i+1}({short_context})\"
+                                        
+                                        all_chunk_labels_list.append(short_label)
+                                        chunk_label_lookup_dict[short_label] = (chunk, doc.title)
+
+                    # Store matrix, labels, and lookup in session state
+                    if all_chunk_embeddings_list:
+                        try:
+                            st.session_state['all_chunk_embeddings_matrix'] = np.array(all_chunk_embeddings_list)
+                            st.session_state['all_chunk_labels'] = all_chunk_labels_list
+                            st.session_state['chunk_label_lookup_dict'] = chunk_label_lookup_dict
+                            st.success(f\"Stored matrix & lookup for {len(all_chunk_labels_list)} chunks.\")
+                        except Exception as matrix_error:
+                            st.error(f\"Error creating chunk embedding matrix or lookup: {matrix_error}\")
+                            st.session_state.pop('all_chunk_embeddings_matrix', None)
+                            st.session_state.pop('all_chunk_labels', None)
+                            st.session_state.pop('chunk_label_lookup_dict', None)
+                            error_occurred = True
+                    else:
+                        st.session_state.pop('all_chunk_embeddings_matrix', None)
+                        st.session_state.pop('all_chunk_labels', None)
+                        st.session_state.pop('chunk_label_lookup_dict', None)
+                        st.warning(\"No chunk embeddings were found to create matrix.\")
+
+                    # Determine overall status
+                    docs_have_embeddings = any(doc.embedding is not None for doc in st.session_state.documents)
+                    chunks_have_embeddings = ('all_chunk_embeddings_matrix' in st.session_state and
+                                            st.session_state['all_chunk_embeddings_matrix'] is not None and
+                                            st.session_state['all_chunk_embeddings_matrix'].shape[0] > 0)
+                    st.session_state.embeddings_generated = docs_have_embeddings or chunks_have_embeddings
+
+                    # Clear previous plot data as embeddings changed
+                    st.session_state.coords_2d = None
+                    st.session_state.coords_3d = None
+                    st.session_state.scatter_fig_2d = None
+                    st.session_state.current_coords_2d = None
+                    st.session_state.current_labels = []
+
+                    st.rerun()  # Ensure state is immediately available
+
+                except Exception as e:
+                    st.error(f\"An unexpected error occurred during embedding generation: {e}\")
+            elif not embedding_service:
+                st.error(\"Embedding Service not available.\")
+            else:
+                st.warning(\"No documents loaded to generate embeddings for.\")
+
+        # Document/Chunk Structure Table & Multiselect Analysis
+        with st.expander(\"View Document/Chunk Structure\", expanded=True):
+            if not st.session_state.documents:
+                st.write(\"No documents loaded.\")
+            else:
+                # Check if chunking appears to have run
+                chunk_labels_exist = 'all_chunk_labels' in st.session_state and st.session_state['all_chunk_labels']
+
+                if not chunk_labels_exist:
+                    # Check if chunking attribute exists but embedding hasn't run yet
+                    docs_have_chunks_attr = any(hasattr(doc, 'chunks') for doc in st.session_state.documents)
+                    if docs_have_chunks_attr:
+                        st.info(\"Chunking run, but embeddings not generated yet. Click 'Generate Embeddings'.\")
+                    else:
+                        st.info(\"Run 'Chunk Loaded Documents' first.\")
+                else:
+                    # Build Table Data
+                    table_data = []
+                    max_chunks = 0
+                    doc_titles_in_table = []
+                    
+                    for doc in st.session_state.documents:
+                        if hasattr(doc, 'chunks') and doc.chunks:
+                            max_chunks = max(max_chunks, len(doc.chunks))
+
+                    if max_chunks > 0:
+                        for doc in st.session_state.documents:
+                            doc_titles_in_table.append(doc.title)
+                            row_data = {'Document': doc.title}
+                            if hasattr(doc, 'chunks') and doc.chunks:
+                                for i in range(max_chunks):
+                                    col_name = f\"Chunk {i+1}\"
+                                    row_data[col_name] = doc.chunks[i].context_label if i < len(doc.chunks) else \"\"
+                            else:
+                                for i in range(max_chunks): row_data[f\"Chunk {i+1}\"] = \"-\"
+                            table_data.append(row_data)
+
+                    # Display Table with Styling
+                    if table_data:
+                        try:
+                            df = pd.DataFrame(table_data)
+                            st.write(\"Chunk Overview (Context Labels shown):\")
+                            st.dataframe(df)
+                        except Exception as e:
+                            st.error(f\"Error creating structure table: {e}\")
+
+# --- Visualize Tab ---
+elif st.session_state.active_tab == \"Visualize\":
+    st.header(\"Embedding Space Visualization\")
+
+    if not st.session_state.documents:
+        st.info(\"Upload and process documents first.\")
+    else:
+        # Analysis Configuration
+        st.subheader(\"Analysis Configuration\")
+        analysis_level = st.radio(
+            \"Analyze/Visualize Level:\", ('Documents', 'Chunks'), key='analysis_level', horizontal=True
+        )
+
+        # Check if embeddings exist at the required level
+        embeddings_exist = False
+        items_available_for_level = 0
+        can_analyze = False
+
+        if st.session_state.get('embeddings_generated'):
+            if analysis_level == 'Documents':
+                items_available_for_level = sum(1 for doc in st.session_state.documents if doc.embedding is not None)
+                if items_available_for_level >= MIN_ITEMS_FOR_PLOT:
+                    embeddings_exist = True
+                if items_available_for_level >= 1:
+                    can_analyze = True
+            elif analysis_level == 'Chunks':
+                chunk_matrix = st.session_state.get('all_chunk_embeddings_matrix')
+                if chunk_matrix is not None and chunk_matrix.shape[0] > 0:
+                    items_available_for_level = chunk_matrix.shape[0]
+                    embeddings_exist = True
+                    can_analyze = True
+
+        if not embeddings_exist:
+            if analysis_level == 'Documents':
+                st.warning(f\"Generate embeddings. Document plotting requires >= {MIN_ITEMS_FOR_PLOT} docs with embeddings.\")
+            else:
+                st.warning(\"Generate embeddings for chunks.\")
+        elif not analysis_service or not visualization_service:
+            st.error(\"Analysis or Visualization Service not available.\")
+        else:
+            col1, col2 = st.columns(2)
+            plot_title_suffix = analysis_level
+
+            # Get Embeddings/Labels for Plotting
+            embeddings_to_plot = None
+            labels_to_plot = []
+            source_doc_titles_for_plot = None
+            doc_color_map = None
+            color_categories_for_plot = None
+
+            if analysis_level == 'Documents':
+                docs_with_embeddings = [doc for doc in st.session_state.documents if doc.embedding is not None]
+                if len(docs_with_embeddings) >= MIN_ITEMS_FOR_PLOT:
+                    embeddings_to_plot = np.array([doc.embedding for doc in docs_with_embeddings])
+                    labels_to_plot = [doc.title for doc in docs_with_embeddings]
+                    
+                    try:
+                        unique_titles = sorted(list(set(labels_to_plot)))
+                        color_sequence = px.colors.qualitative.Plotly
+                        doc_color_map = {title: color_sequence[i % len(color_sequence)] for i, title in enumerate(unique_titles)}
+                        st.session_state['doc_color_map'] = doc_color_map
+                        color_categories_for_plot = labels_to_plot
+                    except Exception as e:
+                        st.error(f\"Error generating color map for documents: {e}\")
+                        color_categories_for_plot = None
+                        doc_color_map = None
+                        st.session_state.pop('doc_color_map', None)
+                        
+            elif analysis_level == 'Chunks':
+                embeddings_to_plot = st.session_state.get('all_chunk_embeddings_matrix')
+                labels_to_plot = st.session_state.get('all_chunk_labels', [])
+                if labels_to_plot:
+                    try:
+                        lookup = st.session_state.get('chunk_label_lookup_dict', {})
+                        source_doc_titles_full = []
+                        
+                        if lookup and labels_to_plot:
+                            try:
+                                source_doc_titles_full = [lookup[label][1] for label in labels_to_plot if label in lookup]
+                            except (KeyError, IndexError, TypeError) as e:
+                                st.error(f\"Error accessing titles from lookup: {e}\")
+                                source_doc_titles_full = []
+                                
+                        if source_doc_titles_full:
+                            color_categories_for_plot = source_doc_titles_full
+                            try:
+                                unique_titles = sorted(list(set(source_doc_titles_full)))
+                                color_sequence = px.colors.qualitative.Plotly
+                                doc_color_map = {title: color_sequence[i % len(color_sequence)] for i, title in enumerate(unique_titles)}
+                                st.session_state['doc_color_map'] = doc_color_map
+                            except Exception as map_e:
+                                st.error(f\"Error generating color map: {map_e}\")
+                                doc_color_map = {}
+                                color_categories_for_plot = None
+                                st.session_state.pop('doc_color_map', None)
+                        else:
+                            st.warning(\"Could not derive source document titles for chunk coloring.\")
+                            doc_color_map = {}
+                            color_categories_for_plot = None
+                            st.session_state.pop('doc_color_map', None)
+                            
+                    except Exception as e:
+                        st.error(f\"Unexpected error during color setup: {e}\")
+                        doc_color_map = {}
+                        color_categories_for_plot = None
+                        st.session_state.pop('doc_color_map', None)
+
+            # Plotting Buttons
+            can_plot_now = embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (MIN_ITEMS_FOR_PLOT if analysis_level == 'Documents' else 1)
+
+            with col1:
+                if st.button(\"Show 2D Plot\", disabled=not can_plot_now):
+                    st.session_state.scatter_fig_2d = None
+                    st.session_state.current_coords_2d = None
+                    st.session_state.current_labels = []
+
+                    if analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT:
+                        st.error(f\"Plotting requires >= {MIN_ITEMS_FOR_PLOT} documents with embeddings.\")
+                    else:
+                        try:
+                            with st.spinner(f\"Reducing {analysis_level.lower()} dimensions to 2D...\"):
+                                if embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (1 if analysis_level == 'Chunks' else MIN_ITEMS_FOR_PLOT):
+                                    coords_2d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=2)
+                                    if coords_2d is None:
+                                        st.error(\"Failed to generate 2D coordinates (check logs for details).\")
+                                    else:
+                                        st.session_state.current_coords_2d = coords_2d
+                                        st.session_state.current_labels = labels_to_plot
+                                        
+                                        fig_2d = visualization_service.plot_scatter_2d(
+                                            coords=coords_2d, labels=labels_to_plot,
+                                            title=f\"2D UMAP Projection of {plot_title_suffix}\", 
+                                            color_categories=color_categories_for_plot,
+                                            color_discrete_map=doc_color_map
+                                        )
+                                        st.session_state.scatter_fig_2d = fig_2d
+                                else:
+                                    st.warning(\"Insufficient data provided for dimensionality reduction.\")
+                        except Exception as e:
+                            st.error(f\"Error generating 2D plot: {e}\")
+
+            with col2:
+                if st.button(\"Show 3D Plot\", disabled=not can_plot_now):
+                    st.session_state.scatter_fig_2d = None
+                    st.session_state.current_coords_2d = None
+                    st.session_state.current_labels = []
+
+                    if analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT:
+                        st.error(f\"Plotting requires >= {MIN_ITEMS_FOR_PLOT} documents with embeddings.\")
+                    else:
+                        try:
+                            with st.spinner(f\"Reducing {analysis_level.lower()} dimensions to 3D...\"):
+                                if embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (1 if analysis_level == 'Chunks' else MIN_ITEMS_FOR_PLOT):
+                                    coords_3d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=3)
+                                    if coords_3d is None:
+                                        st.error(\"Failed to generate 3D coordinates (check logs for details).\")
+                                    else:
+                                        color_arg = color_categories_for_plot
+                                        fig_3d = visualization_service.plot_scatter_3d(
+                                            coords=coords_3d, labels=labels_to_plot,
+                                            title=f\"3D UMAP Projection of {plot_title_suffix}\",
+                                            color_data=color_arg
+                                        )
+                                        st.plotly_chart(fig_3d, use_container_width=True)
+                                else:
+                                    st.warning(\"Insufficient data provided for dimensionality reduction.\")
+                        except Exception as e:
+                            st.error(f\"Error generating 3D plot: {e}\")
+
+            # Display 2D Plot and Handle Selection (Semantic Center)
+            if st.session_state.get('scatter_fig_2d') is not None:
+                event_data = st.plotly_chart(
+                    st.session_state.scatter_fig_2d, use_container_width=True,
+                    on_select=\"rerun\", key=\"umap_scatter_2d\"
+                )
+
+                selection = None
+                if event_data and event_data.get(\"selection\") and event_data[\"selection\"].get(\"point_indices\"):
+                    selected_indices = event_data[\"selection\"][\"point_indices\"]
+                    if selected_indices:
+                        selection = {'indices': selected_indices}
+                        print(f\"DEBUG: Plot selection detected: Indices {selected_indices}\")
+
+                if selection and len(selection['indices']) == 3:
+                    st.subheader(\"Triangle Analysis (Plot Selection)\")
+                    selected_indices_from_plot = selection['indices']
+                    current_plot_labels = st.session_state.get('current_labels', [])
+
+                    if current_plot_labels and all(idx < len(current_plot_labels) for idx in selected_indices_from_plot):
+                        selected_labels_display = [current_plot_labels[i] for i in selected_indices_from_plot]
+                        st.write(\"**Selected Vertices:**\")
+                        for i, label in enumerate(selected_labels_display):
+                            st.write(f\"- {label} (Plot Index: {selected_indices_from_plot[i]})\")
+
+                        try:
+                            # Get High-Dim Data for Analysis
+                            selected_high_dim_embeddings = []
+                            high_dim_corpus_matrix = None
+                            high_dim_corpus_labels = []
+
+                            if analysis_level == 'Documents':
+                                docs_map = {doc.title: doc for doc in st.session_state.documents if doc.embedding is not None}
+                                selected_docs = [docs_map.get(lbl) for lbl in selected_labels_display]
+                                if None in selected_docs or any(doc.embedding is None for doc in selected_docs):
+                                    st.error(\"Could not map all selected plot labels back to documents with embeddings.\")
+                                else:
+                                    selected_high_dim_embeddings = [doc.embedding for doc in selected_docs]
+                                    all_docs_with_embeddings = list(docs_map.values())
+                                    high_dim_corpus_matrix = np.array([doc.embedding for doc in all_docs_with_embeddings])
+                                    high_dim_corpus_labels = [doc.title for doc in all_docs_with_embeddings]
+
+                            elif analysis_level == 'Chunks':
+                                high_dim_corpus_matrix = st.session_state.get('all_chunk_embeddings_matrix')
+                                high_dim_corpus_labels = st.session_state.get('all_chunk_labels', [])
+                                if high_dim_corpus_matrix is not None and all(idx < high_dim_corpus_matrix.shape[0] for idx in selected_indices_from_plot):
+                                    selected_high_dim_embeddings = high_dim_corpus_matrix[selected_indices_from_plot].tolist()
+                                else:
+                                    st.error(\"Mismatch between plot indices and chunk embedding matrix.\")
+                                    selected_high_dim_embeddings = []
+
+                            # Proceed if embeddings found
+                            if len(selected_high_dim_embeddings) == 3 and high_dim_corpus_matrix is not None and high_dim_corpus_labels:
+                                try:
+                                    mean_high_dim_emb = np.mean(np.array(selected_high_dim_embeddings), axis=0)
+                                    nn_indices, nn_scores = analysis_service.find_k_nearest(
+                                        mean_high_dim_emb, high_dim_corpus_matrix, k=1
+                                    )
+
+                                    if nn_indices is not None and len(nn_indices) > 0:
+                                        nearest_neighbor_index = nn_indices[0]
+                                        if`
+}
