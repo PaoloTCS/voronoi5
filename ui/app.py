@@ -250,90 +250,81 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                         except Exception as e:
                             st.sidebar.error(f"Error embedding doc '{doc.title}': {e}")
                             error_occurred = True
+                            continue # Skip to next doc if doc embedding fails
 
                     # 2. Process Chunk Embeddings (if chunks exist)
                     if hasattr(doc, 'chunks') and doc.chunks:
-                        for j, chunk in enumerate(doc.chunks):
+                        for chunk_idx, chunk in enumerate(doc.chunks):
                             if chunk.embedding is None:
                                 try:
                                     chunk.embedding = embedding_service.generate_embedding(chunk.content)
                                     if chunk.embedding is not None: chunks_processed_count += 1
                                 except Exception as e:
-                                    st.sidebar.error(f"Error embedding chunk {j+1} in doc '{doc.title}': {e}")
+                                    st.sidebar.error(f"Error embedding chunk {chunk_idx} in doc '{doc.title}': {e}")
                                     error_occurred = True
+                                    # Optionally, decide if you want to stop all embedding for this doc or continue with other chunks
+                    updated_documents[i] = doc # Update the document in the list
 
-                # Update session state with potentially modified documents
-                st.session_state.documents = updated_documents
+                st.session_state.documents = updated_documents # Update session state with processed documents
 
-            # --- Post-processing: Create and store chunk matrix ---
-            all_chunk_embeddings_list = []
-            all_chunk_labels_list = [] # This will store the SHORT labels for display
-            chunk_label_to_object_lookup = {} # Key: short_label, Value: chunk object
-            chunk_full_label_lookup = {} # Key: short_label, Value: original_full_label (optional, if needed elsewhere)
-            print("Consolidating chunk embeddings into matrix and creating lookup...")
-            if st.session_state.documents:
-                for doc in st.session_state.documents:
-                     if hasattr(doc, 'chunks') and doc.chunks:
-                         for i, chunk in enumerate(doc.chunks):
-                             if chunk.embedding is not None:
-                                 all_chunk_embeddings_list.append(chunk.embedding)
+                # After processing all documents and their chunks, consolidate chunk embeddings
+                all_chunk_embeddings = []
+                all_chunk_labels = []
+                chunk_label_lookup_dict = {} # For debugging and easier lookup
 
-                                 # --- Create Shortened Label ---
-                                 # Shorten title (e.g., first 10 chars + ellipsis)
-                                 short_title = doc.title[:10] + ('...' if len(doc.title) > 10 else '')
-                                 # Shorten context label (e.g., first 15 chars + ellipsis)
-                                 short_context = chunk.context_label[:15] + ('...' if len(chunk.context_label) > 15 else '')
-                                 # Combine into the short label for display
-                                 short_label = f"{short_title}::C{i+1}({short_context})"
+                for doc_idx, doc in enumerate(st.session_state.documents):
+                    if hasattr(doc, 'chunks') and doc.chunks:
+                        for chunk_idx, chunk in enumerate(doc.chunks):
+                            if chunk.embedding is not None:
+                                all_chunk_embeddings.append(chunk.embedding)
+                                label = f"{doc.title}_Chunk{chunk_idx+1}"
+                                all_chunk_labels.append(label)
+                                # Store index mapping: original doc_idx, chunk_idx to its position in the flat list
+                                chunk_label_lookup_dict[label] = {'doc_index': doc_idx, 'chunk_index': chunk_idx, 'flat_list_index': len(all_chunk_embeddings)-1}
 
-                                 # Original full label (store if needed, maybe not directly used now)
-                                 # original_full_label = f"{doc.title} :: Chunk {i+1} ({chunk.context_label})"
 
-                                 # Use the SHORT label for the list and lookup key
-                                 all_chunk_labels_list.append(short_label)
-                                 # Store chunk object AND original doc title in lookup
-                                 chunk_label_to_object_lookup[short_label] = (chunk, doc.title) 
-                                 # chunk_full_label_lookup[short_label] = original_full_label # Optional
+                if all_chunk_embeddings:
+                    st.session_state.all_chunk_embeddings_matrix = np.array(all_chunk_embeddings)
+                    st.session_state.all_chunk_labels = all_chunk_labels
+                    st.session_state.chunk_label_lookup_dict = chunk_label_lookup_dict # Save for potential use
 
-            # Store matrix, labels, and lookup in session state
-            if all_chunk_embeddings_list:
-                try:
-                    st.session_state['all_chunk_embeddings_matrix'] = np.array(all_chunk_embeddings_list)
-                    st.session_state['all_chunk_labels'] = all_chunk_labels_list # Store short labels
-                    st.session_state['chunk_label_lookup_dict'] = chunk_label_to_object_lookup # Uses short labels as keys, stores (chunk, title)
-                    # st.session_state['chunk_full_label_lookup'] = chunk_full_label_lookup # Optional
-                    st.sidebar.success(f"Stored matrix & lookup for {len(all_chunk_labels_list)} chunks.")
-                except Exception as matrix_error:
-                     st.sidebar.error(f"Error creating chunk embedding matrix or lookup: {matrix_error}")
-                     st.session_state.pop('all_chunk_embeddings_matrix', None)
-                     st.session_state.pop('all_chunk_labels', None)
-                     st.session_state.pop('chunk_label_lookup_dict', None)
-                     error_occurred = True
-            else:
-                # Clear potentially stale state if no embeddings found this time
-                st.session_state.pop('all_chunk_embeddings_matrix', None)
-                st.session_state.pop('all_chunk_labels', None)
-                st.session_state.pop('chunk_label_lookup_dict', None)
-                st.sidebar.warning("No chunk embeddings were found to create matrix.")
+                    # --- START DEBUG EMBEDDING ---
+                    # st.sidebar.write("--- DEBUG EMBEDDING ---")
+                    # matrix_shape_debug = st.session_state.all_chunk_embeddings_matrix.shape if st.session_state.all_chunk_embeddings_matrix is not None else "None"
+                    # labels_len_debug = len(st.session_state.all_chunk_labels) if st.session_state.all_chunk_labels is not None else "None"
+                    # lookup_len_debug = len(st.session_state.chunk_label_lookup_dict) if st.session_state.chunk_label_lookup_dict is not None else "None"
+                    # st.sidebar.write(f"Post-consolidation: Matrix shape: {matrix_shape_debug}, Labels len: {labels_len_debug}, Lookup len: {lookup_len_debug}")
+                    # if st.session_state.all_chunk_labels and isinstance(st.session_state.all_chunk_labels, list) and len(st.session_state.all_chunk_labels) > 0:
+                    #    st.sidebar.write(f"First label: {st.session_state.all_chunk_labels[0]}")
+                    # if st.session_state.chunk_label_lookup_dict and isinstance(st.session_state.chunk_label_lookup_dict, dict) and len(st.session_state.chunk_label_lookup_dict) > 0:
+                    #    st.sidebar.write(f"First lookup entry example (first key): {list(st.session_state.chunk_label_lookup_dict.keys())[0]}")
+                    # st.sidebar.write("--- END DEBUG ---")
+                    # --- END DEBUG EMBEDDING ---
+                else:
+                    st.session_state.all_chunk_embeddings_matrix = None # Ensure it's reset if no chunks
+                    st.session_state.all_chunk_labels = []
+                    st.session_state.chunk_label_lookup_dict = {}
 
-            # Determine overall status
-            docs_have_embeddings = any(doc.embedding is not None for doc in st.session_state.documents)
-            chunks_have_embeddings = ('all_chunk_embeddings_matrix' in st.session_state and
-                                      st.session_state['all_chunk_embeddings_matrix'] is not None and
-                                      st.session_state['all_chunk_embeddings_matrix'].shape[0] > 0)
-            st.session_state.embeddings_generated = docs_have_embeddings or chunks_have_embeddings
 
-            # Clear previous plot data as embeddings changed
-            st.session_state.coords_2d = None
-            st.session_state.coords_3d = None
-            st.session_state.scatter_fig_2d = None
-            st.session_state.current_coords_2d = None
-            st.session_state.current_labels = []
+                st.session_state.embeddings_generated = True
+                msg = f"Embeddings generated for {docs_processed_count} documents and {chunks_processed_count} chunks."
+                if error_occurred:
+                    st.sidebar.warning(msg + " (with errors)")
+                else:
+                    st.sidebar.success(msg)
 
-            st.rerun() # Ensure state is immediately available
+                # Clear any previous plot data as embeddings have changed
+                st.session_state.scatter_fig_2d = None
+                st.session_state.current_coords_2d = None
+                st.session_state.current_labels = []
+                st.session_state.coords_3d = None
+                st.rerun()
 
         except Exception as e:
             st.sidebar.error(f"An unexpected error occurred during embedding generation: {e}")
+            # Potentially reset parts of the state if a major failure occurs
+            reset_derived_data(clear_docs=False) # Reset relevant parts
+            st.rerun() # Rerun to reflect state changes
     elif not embedding_service:
         st.sidebar.error("Embedding Service not available.")
     else:
