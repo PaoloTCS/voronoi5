@@ -10,6 +10,8 @@ import networkx as nx # Import networkx
 import plotly.express as px # Add import for colors
 import streamlit.components.v1 as components # Import Streamlit components
 import graphviz # <<< Add graphviz import
+import gmpy2 # Added gmpy2 for path encoding tests
+import traceback
 
 # --- Path Setup for Sibling Module Imports ---
 import sys
@@ -30,6 +32,9 @@ from services.ai.embedding_service import EmbeddingService
 from services.ai.analysis_service import AnalysisService
 from visualization.scatter_plotter import VisualizationService
 from services.ai.text_processor import ContextualChunker
+from services.knowledge_graph_service import KnowledgeGraphService
+from models.knowledge_graph import KnowledgeGraph
+from services.path_encoding_service import PathEncodingService
 
 # --- Configuration & Constants ---
 # SAMPLE_DOCS removed for brevity, assume they exist if needed later
@@ -66,10 +71,27 @@ def load_chunker(_embedding_service, _analysis_service):
         st.error(f"Error loading Contextual Chunker: {e}")
         return None
 
+@st.cache_resource
+def load_path_encoding_service():
+    return PathEncodingService() # Default block_size, depth_limit
+
+@st.cache_resource # Or st.session_state if it manages a graph instance
+def load_knowledge_graph_service():
+    # If KGService manages THE graph, it should be in session_state
+    # For now, let's assume it can be cached if it operates on a passed graph
+    if 'knowledge_graph_instance' not in st.session_state:
+         st.session_state.knowledge_graph_instance = KnowledgeGraph(name="MainKG_App")
+    # If KGService is stateless and operates on passed graph:
+    # return KnowledgeGraphService()
+    # If KGService manages its own graph instance:
+    return KnowledgeGraphService(knowledge_graph=st.session_state.knowledge_graph_instance)
+
 embedding_service = load_embedding_service()
 analysis_service = load_analysis_service()
 visualization_service = load_visualization_service()
 chunker = load_chunker(embedding_service, analysis_service)
+path_encoding_service = load_path_encoding_service()
+knowledge_graph_service = load_knowledge_graph_service()
 
 # --- Session State Initialization ---
 def initialize_session_state():
@@ -277,10 +299,13 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                         for chunk_idx, chunk in enumerate(doc.chunks):
                             if chunk.embedding is not None:
                                 all_chunk_embeddings.append(chunk.embedding)
-                                label = f"{doc.title}_Chunk{chunk_idx+1}"
-                                all_chunk_labels.append(label)
-                                # Store index mapping: original doc_idx, chunk_idx to its position in the flat list
-                                chunk_label_lookup_dict[label] = {'doc_index': doc_idx, 'chunk_index': chunk_idx, 'flat_list_index': len(all_chunk_embeddings)-1}
+                                # --- Use Consistent Shortened Label ---
+                                short_title = doc.title[:10] + ('...' if len(doc.title) > 10 else '')
+                                short_context = chunk.context_label[:15] + ('...' if hasattr(chunk, 'context_label') and len(chunk.context_label) > 15 else '')
+                                current_chunk_label = f"{short_title}::C{chunk_idx+1}({short_context})"
+                                all_chunk_labels.append(current_chunk_label)
+                                # Store the chunk object AND its document's title
+                                chunk_label_lookup_dict[current_chunk_label] = (chunk, doc.title)
 
 
                 if all_chunk_embeddings:
@@ -407,19 +432,23 @@ else:
                 lookup = st.session_state.get('chunk_label_lookup_dict', {})
                 labels_to_plot = st.session_state.get('all_chunk_labels', [])
                 source_doc_titles_full = []
+                if lookup and labels_to_plot:
+                    for label_idx, label in enumerate(labels_to_plot):
+                        if label in lookup:
+                            item = lookup[label]
+                            if isinstance(item, tuple) and len(item) == 2:
+                                doc_title = item[1]
+                                if isinstance(doc_title, str):
+                                    source_doc_titles_full.append(doc_title)
+                                else:
+                                    st.warning(f"Warning: Document title for chunk label '{label}' is not a string (type: {type(doc_title)}). Skipping for coloring.")
+                            else:
+                                st.warning(f"Warning: Lookup item for chunk label '{label}' is not a valid (chunk_obj, doc_title) tuple (value: {item}). Skipping for coloring.")
+                        else:
+                            st.warning(f"Warning: Chunk label '{label}' (index {label_idx}) not found in lookup_dict. Skipping for coloring.")
                 color_categories_for_plot = None
                 doc_color_map = {} # Initialize as empty dict
 
-                if lookup and labels_to_plot:
-                     # Extract the stored doc.title (element 1 of the tuple) from the lookup
-                     try:
-                          # Ensure label exists in lookup before accessing
-                          source_doc_titles_full = [lookup[label][1] for label in labels_to_plot if label in lookup]
-                     except (KeyError, IndexError, TypeError) as e:
-                          st.error(f"Error accessing titles from lookup: {e}")
-                          source_doc_titles_full = [] # Reset on error
-
-                # Proceed only if we successfully extracted titles
                 if source_doc_titles_full:
                     color_categories_for_plot = source_doc_titles_full
                     try:
@@ -429,23 +458,22 @@ else:
                         doc_color_map = {title: color_sequence[i % len(color_sequence)] for i, title in enumerate(unique_titles)}
                         st.session_state['doc_color_map'] = doc_color_map # Store in session state
                     except Exception as map_e:
-                         st.error(f"Error generating color map: {map_e}")
-                         doc_color_map = {} # Reset to empty on error
-                         color_categories_for_plot = None
-                         st.session_state.pop('doc_color_map', None)
+                        st.error(f"Error generating color map: {map_e}")
+                        doc_color_map = {} # Reset to empty on error
+                        color_categories_for_plot = None
+                        st.session_state.pop('doc_color_map', None)
                 else:
-                     # Failed to get titles, ensure map is empty and state is clear
-                     st.warning("Could not derive source document titles for chunk coloring.")
-                     doc_color_map = {}
-                     color_categories_for_plot = None
-                     st.session_state.pop('doc_color_map', None)
-
+                    # Failed to get titles, ensure map is empty and state is clear
+                    st.warning("Could not derive source document titles for chunk coloring.")
+                    doc_color_map = {}
+                    color_categories_for_plot = None
+                    st.session_state.pop('doc_color_map', None)
             except Exception as e:
-                 # Catch any other unexpected errors in this block
-                 st.error(f"Unexpected error during color setup: {e}")
-                 doc_color_map = {}
-                 color_categories_for_plot = None
-                 st.session_state.pop('doc_color_map', None)
+                # Catch any other unexpected errors in this block
+                st.error(f"Unexpected error during color setup: {e}")
+                doc_color_map = {}
+                color_categories_for_plot = None
+                st.session_state.pop('doc_color_map', None)
 
     # --- Plotting Buttons ---
     # Ensure we have data before enabling buttons
@@ -904,178 +932,132 @@ else:
 
                 except Exception as e:
                     st.error(f"Error finding nearest neighbors: {e}")
-                    import traceback
                     st.error(traceback.format_exc()) # Print full traceback for debugging
 
 
-# --- Semantic Chunk Graph Section --- (Place appropriately in UI logic)
+# --- Semantic Chunk Graph Section ---
 st.header("Semantic Chunk Graph")
 
-# Check prerequisites
-# Use the keys for the centralized chunk data
 chunk_matrix_graph = st.session_state.get('all_chunk_embeddings_matrix')
 chunk_labels_graph = st.session_state.get('all_chunk_labels')
-analysis_service = load_analysis_service() # Ensure service is loaded
-
-# Initialize graph-related variables outside the button click
-semantic_graph, graph_metrics, communities = None, {}, None
-node_degrees, node_betweenness = {}, {}
+# analysis_service = load_analysis_service() # Assumed loaded
 
 if chunk_matrix_graph is None or not chunk_labels_graph:
     st.info("Generate embeddings for chunks first to build the semantic graph.")
-elif not analysis_service:
-    st.error("Analysis Service not available.")
+# elif not analysis_service: # This check might already be higher up
+#    st.error("Analysis Service not available.")
 else:
-    # UI Elements
+    # --- Slider MUST be here, before the button ---
     similarity_threshold = st.slider(
         "Similarity Threshold for Graph Edges:",
         min_value=0.1, max_value=1.0, value=0.7, step=0.05, key="graph_threshold"
     )
 
     if st.button("Show Semantic Graph", key="show_graph_button"):
-         # Retrieve data from session state (already checked existence)
-         labels = st.session_state.get('all_chunk_labels') # Short labels
-         embeddings = st.session_state.get('all_chunk_embeddings_matrix')
-         lookup = st.session_state.get('chunk_label_lookup_dict', {}) # {short_label: (chunk_obj, doc_title)}
-         source_docs_for_graph = None # Initialize
+        st.write("DEBUG: 'Show Semantic Graph' button clicked.")
 
-         if labels and embeddings is not None and lookup:
-              try:
-                  # Derive source documents reliably using the lookup dict
-                  source_docs_for_graph = [lookup[label][1] for label in labels if label in lookup]
-                  # Basic validation
-                  if len(source_docs_for_graph) != len(labels):
-                       st.warning("Mismatch generating source doc list for graph. Coloring might be inaccurate.")
-                       source_docs_for_graph = [label.split('::')[0] for label in labels] # Fallback
-              except Exception as e:
-                   st.error(f"Failed to prepare source document list for graph coloring: {e}")
-                   source_docs_for_graph = None
+        labels = st.session_state.get('all_chunk_labels')
+        embeddings = st.session_state.get('all_chunk_embeddings_matrix')
+        lookup = st.session_state.get('chunk_label_lookup_dict', {})
+        source_docs_for_graph = None
 
-         graph_data = None
-         if labels and embeddings is not None and source_docs_for_graph:
-             with st.spinner(f"Generating graph with threshold {similarity_threshold}..."):
-                 graph_data = analysis_service.create_semantic_graph(
-                     embeddings,
-                     labels, 
-                     source_documents=source_docs_for_graph, 
-                     similarity_threshold=similarity_threshold
-                 )
-         elif not (labels and embeddings and lookup):
-             st.error("Chunk embedding data (labels, matrix, or lookup) is missing. Please regenerate embeddings.")
-         elif not source_docs_for_graph:
-             pass 
+        st.write(f"DEBUG: Initial labels: {'Exists' if labels else 'None'}, Embeddings: {'Exists' if embeddings is not None else 'None'}, Lookup: {'Exists' if lookup else 'None'}")
 
-         # Unpack graph_data if it was successfully generated
-         if graph_data: 
-             if len(graph_data) == 3:
-                  semantic_graph, graph_metrics, communities = graph_data 
-                  node_degrees = graph_metrics.get('degrees', {})
-                  node_betweenness = graph_metrics.get('betweenness', {})
-             else:
-                  st.error("Graph generation service returned unexpected data format.")
-                  # Reset to ensure clean state if unpacking failed
-                  semantic_graph, graph_metrics, communities = None, {}, None
-                  node_degrees, node_betweenness = {}, {}
-         elif labels and embeddings is not None and source_docs_for_graph: # graph_data is None but inputs were ok
-             st.error("Failed to generate semantic graph data from service (service returned None).")
-             # Reset to ensure clean state
-             semantic_graph, graph_metrics, communities = None, {}, None
-             node_degrees, node_betweenness = {}, {}
-
-    # Display graph and metrics if semantic_graph is not None
-    # This section will now always have node_degrees and node_betweenness initialized
-    if semantic_graph:
-        if semantic_graph.number_of_nodes() > 0:
-            st.success(f"Generated graph with {semantic_graph.number_of_nodes()} nodes and {semantic_graph.number_of_edges()} edges.")
-            # --- Visualization Option: Graphviz (Static, with COLOR) ---
+        if labels and embeddings is not None and lookup:
             try:
-                if semantic_graph.number_of_nodes() < 150:
-                    pydot_graph = nx.nx_pydot.to_pydot(semantic_graph)
-                    pydot_graph.set_graph_defaults(overlap='scale', sep='+5', splines='true')
-                    pydot_graph.set_node_defaults(shape='ellipse')
-                    pydot_graph.set_prog('neato')
-                    st.graphviz_chart(pydot_graph.to_string())
-                else:
-                    st.info(f"Graph too large ({semantic_graph.number_of_nodes()} nodes) for direct Graphviz visualization.")
-            except ImportError:
-                st.warning("Graphviz / pydot not installed. Cannot display static graph. Ensure `pydot` is in requirements.txt")
-            except AttributeError as e:
-                st.warning(f"Could not render graph via pydot. Is `pydot` installed correctly? Error: {e}")
-            except Exception as viz_error:
-                st.error(f"Error rendering graph: {viz_error}")
+                source_docs_for_graph = [lookup[label][1] for label in labels if label in lookup and isinstance(lookup[label], tuple) and len(lookup[label]) == 2]
+                st.write(f"DEBUG: Prepared source_docs_for_graph, length: {len(source_docs_for_graph) if source_docs_for_graph is not None else 'None'}")
+                if source_docs_for_graph is not None and len(source_docs_for_graph) != len(labels):
+                    st.warning("Graph Coloring: Mismatch creating source_docs_for_graph. Some titles might be missing.")
+            except Exception as e:
+                st.error(f"Error preparing source_docs_for_graph: {e}")
+                source_docs_for_graph = None
 
-            # --- Display Top N Degrees ---
-            if node_degrees:
-                st.subheader("Top Connected Chunks (Highest Degree)")
-                sorted_degrees = sorted(node_degrees.items(), key=lambda item: item[1], reverse=True)
-                top_n = 10
-                degrees_to_display = sorted_degrees[:top_n]
-                if not degrees_to_display or all(deg == 0 for _, deg in degrees_to_display):
-                    st.info("No nodes with connections found at this threshold.")
-                else:
-                    degree_data = [{"Chunk Label": label, "Degree (Connections)": degree}
-                                   for label, degree in degrees_to_display if degree > 0]
-                    if degree_data:
-                        degree_df = pd.DataFrame(degree_data)
-                        st.dataframe(degree_df, use_container_width=True, hide_index=True)
+        labels_ok = labels and isinstance(labels, list) and len(labels) > 0
+        embeddings_ok = embeddings is not None and isinstance(embeddings, np.ndarray) and embeddings.size > 0
+        can_generate_graph = labels_ok and embeddings_ok and source_docs_for_graph is not None and len(source_docs_for_graph) == len(labels)
+
+        st.write(f"DEBUG: labels_ok: {labels_ok}, embeddings_ok: {embeddings_ok}, source_docs_ok: {source_docs_for_graph is not None and len(source_docs_for_graph) == len(labels)}, can_generate_graph: {can_generate_graph}")
+
+        graph_data = None
+        if can_generate_graph:
+            st.write("DEBUG: Condition `can_generate_graph` is TRUE. Entering spinner.")
+            with st.spinner(f"Generating graph with threshold {similarity_threshold}..."):
+                graph_data = analysis_service.create_semantic_graph(
+                    embeddings,
+                    labels,
+                    source_documents=source_docs_for_graph,
+                    similarity_threshold=similarity_threshold
+                )
+            st.write(f"DEBUG: analysis_service.create_semantic_graph returned: {'Data' if graph_data and graph_data[0] else 'None/Empty'}")
+        elif not (labels_ok and embeddings_ok):
+             st.error("DEBUG CHECK: Missing core data for graph generation (embeddings or labels).")
+        elif not source_docs_for_graph or (source_docs_for_graph and len(source_docs_for_graph) != len(labels)):
+             st.error("DEBUG CHECK: Could not prepare source document information for graph coloring / length mismatch.")
+
+        # Initialize graph variables outside the unpacking if block for safety
+        semantic_graph, graph_metrics, communities = None, {}, None
+        node_degrees, node_betweenness = {}, {}
+
+        if graph_data:
+            st.write("DEBUG: `graph_data` is not None. Unpacking...")
+            if len(graph_data) == 3:
+                 semantic_graph, graph_metrics, communities = graph_data
+                 node_degrees = graph_metrics.get('degrees', {})
+                 node_betweenness = graph_metrics.get('betweenness', {})
+                 st.write(f"DEBUG: Unpacked. semantic_graph: {'Exists' if semantic_graph else 'None'}, node_degrees: {'Exists' if node_degrees else 'None'}")
+            else:
+                 st.error("DEBUG: Graph generation service returned unexpected data format.")
+
+        if semantic_graph:
+            st.write("DEBUG: `semantic_graph` exists. Proceeding to display.")
+            if semantic_graph.number_of_nodes() > 0:
+                st.success(f"Generated graph with {semantic_graph.number_of_nodes()} nodes and {semantic_graph.number_of_edges()} edges.")
+                st.write("DEBUG POINT B.0: Entering graphviz prep try-block (using original semantic_graph).")
+
+                try:
+                    if semantic_graph.number_of_nodes() < 150:
+                        st.write("DEBUG: Attempting st.graphviz_chart with ORIGINAL semantic_graph (with colors).")
+
+                        # Convert the original semantic_graph (which should have color attributes from service)
+                        pydot_graph_original = nx.nx_pydot.to_pydot(semantic_graph)
+                        st.write("DEBUG: pydot_graph_original created via nx_pydot.")
+
+                        pydot_graph_original.set_graph_defaults(overlap='scale', sep='+5', splines='true')
+                        pydot_graph_original.set_node_defaults(shape='ellipse', style='filled') # Ensure style=filled is set at default too
+                        pydot_graph_original.set_prog('neato')
+                        st.write("DEBUG: pydot_graph_original defaults set.")
+
+                        # --- DOT DEBUG for the ORIGINAL graph ---
+                        try:
+                            dot_string_original = pydot_graph_original.to_string()
+                            st.subheader("Generated ORIGINAL DOT String (with color attempts):")
+                            st.code(dot_string_original, language='dot', line_numbers=True)
+                            st.write("DEBUG: Original DOT string displayed.")
+                        except Exception as dot_err:
+                            st.error(f"Could not generate ORIGINAL DOT string: {dot_err}")
+                        # --- END DOT DEBUG ---
+
+                        st.write("DEBUG: Attempting st.graphviz_chart with original graph...")
+                        try:
+                            st.graphviz_chart(pydot_graph_original.to_string()) # Use the original pydot graph
+                            st.success("Original graph (with color attributes) rendered via st.graphviz_chart!")
+                        except Exception as graphviz_render_error:
+                            st.error(f"ERROR during st.graphviz_chart with original graph: {graphviz_render_error}")
+                            st.code(traceback.format_exc())
+                        st.write("DEBUG: After st.graphviz_chart attempt with original graph.")
+
                     else:
-                        st.info("Top nodes have 0 connections at this threshold.")
-            else:
-                st.warning("Node degrees were not calculated.")
-
-            # --- Display Top N Betweenness ---
-            if node_betweenness:
-                 st.subheader("Top Bridge Chunks (Highest Betweenness Centrality)")
-                 # Sort betweenness by value descending
-                 sorted_betweenness = sorted(node_betweenness.items(), key=lambda item: item[1], reverse=True)
-
-                 # Display top N (e.g., 10)
-                 top_n_bw = 10
-                 betweenness_to_display = sorted_betweenness[:top_n_bw]
-
-                 if not betweenness_to_display or all(bw == 0 for _, bw in betweenness_to_display):
-                      st.info("No significant bridge nodes found (betweenness centrality is zero or near zero).")
-                 else:
-                      # Prepare data for table display
-                      betweenness_data = [{
-                          "Chunk Label": label,
-                          "Betweenness Centrality": f"{centrality:.4f}" # Format for display
-                      } for label, centrality in betweenness_to_display if centrality > 0] # Only show if > 0
-
-                      if betweenness_data:
-                           betweenness_df = pd.DataFrame(betweenness_data)
-                           st.dataframe(betweenness_df, use_container_width=True, hide_index=True)
-                      else:
-                            st.info("Top nodes have zero betweenness centrality.")
-            else:
-                st.warning("Betweenness centrality was not calculated.")
-            # --- End Betweenness Display ---
-
-            # --- Display Detected Communities ---
-            if communities is not None: # Check if community detection ran successfully
-                 st.subheader(f"Detected Communities ({len(communities)})")
-                 if not communities:
-                      st.info("No distinct communities found at this threshold/resolution.")
-                 else:
-                      # Sort communities by size (descending) for display
-                      communities.sort(key=len, reverse=True)
-                      for i, community_set in enumerate(communities):
-                           community_list = sorted(list(community_set)) # Sort members alphabetically
-                           with st.expander(f"Community {i+1} ({len(community_list)} members)"):
-                                # Display first N members for brevity
-                                max_members_to_show = 15
-                                st.write(community_list[:max_members_to_show])
-                                if len(community_list) > max_members_to_show:
-                                     st.caption("... (more members hidden)")
-            elif communities is None:
-                 # Explicit message if detection failed (e.g., missing library)
-                 st.warning("Community detection did not run (check logs/dependencies like 'python-louvain').")
-            # --- End Community Display ---
-
-            st.markdown("---") 
-        else:
-            st.info("Graph generated but has no nodes or edges (check threshold and data).")
-         # If semantic_graph is None, an error was already shown above.
+                         st.info(f"Graph too large ({semantic_graph.number_of_nodes()} nodes) for Graphviz.")
+                except ImportError:
+                    st.warning("Graphviz / pydot not installed. Cannot display static graph. Ensure `pydot` is in requirements.txt")
+                except AttributeError as e:
+                    st.warning(f"Could not render graph via pydot. Is `pydot` installed correctly? Error: {e}")
+                except Exception as viz_error:
+                    st.error(f"Error rendering graph: {viz_error}")
+                    st.code(traceback.format_exc())
+                
+                st.write("DEBUG POINT B: After Graphviz block attempt (using original graph).")
 
 # --- Display loaded documents details ---
 with st.expander("View Loaded Documents", expanded=False):
@@ -1135,3 +1117,29 @@ with st.expander("View Computational Matrices Info", expanded=False):
                 st.error("Analysis Service not available.")
     else:
         st.info("Chunk embedding matrix not yet generated. Please generate embeddings.")
+
+# --- Path Encoding Test Section (Placeholder) ---
+st.sidebar.header("Path Encoding (Phase 3 Dev)")
+if path_encoding_service and knowledge_graph_service: # Check if services loaded
+    # Example: Find a path in the current chunk graph (if it exists)
+    # This is highly dependent on how the graph is populated and nodes are named
+    # For now, let's just test encoding a dummy list of primes
+    if st.sidebar.button("Test Path Encoding"):
+        dummy_edge_primes_int = [2, 3, 5, 7, 11] # Primes for 5 edges
+        dummy_edge_primes_gmpy = [gmpy2.mpz(p) for p in dummy_edge_primes_int]
+        
+        st.sidebar.write(f"Encoding primes: {dummy_edge_primes_gmpy}")
+        encoded_path_data = path_encoding_service.encode_path(dummy_edge_primes_gmpy)
+
+        if encoded_path_data:
+            code_c, depth_d = encoded_path_data
+            st.sidebar.write(f"Encoded Path: C = {code_c}, d = {depth_d}")
+
+            decoded_primes = path_encoding_service.decode_path(code_c, depth_d)
+            st.sidebar.write(f"Decoded Primes: {decoded_primes}")
+            if decoded_primes == dummy_edge_primes_gmpy:
+                st.sidebar.success("Encode/Decode Test Passed!")
+            else:
+                st.sidebar.error("Encode/Decode Test Failed!")
+        else:
+            st.sidebar.error("Path encoding failed.")

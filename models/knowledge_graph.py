@@ -1,3 +1,4 @@
+from __future__ import annotations # Enables forward reference for type hints
 import dataclasses
 import uuid
 from typing import Optional, List, Dict, Any, Set, Tuple
@@ -5,7 +6,6 @@ import numpy as np
 import networkx as nx
 # Potentially import Chunk and Document if needed for type hints,
 # but try to keep models independent if possible. Use forward references if needed.
-from __future__ import annotations # Enables forward reference for type hints
 
 @dataclasses.dataclass
 class KnowledgeNode:
