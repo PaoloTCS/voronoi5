@@ -213,7 +213,7 @@ else:
 st.caption(f"Voronoi6 App - v6.0 Demo - Last Updated: {datetime.now().strftime('%Y-%m-%d')}") # Added date
 
 # --- Streamlit App UI ---
-st.title("Voronoi5 - Document Analysis Tool")
+st.title("Voronoi6 - Document Analysis Tool")
 
 # Sidebar for Loading and Options
 st.sidebar.header("Document Loading")
@@ -429,7 +429,39 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
     else:
         st.sidebar.warning("No documents loaded to generate embeddings for.")
 
+# --- Path Encoding Test Section (Placeholder) ---
+st.sidebar.header("Path Encoding (Phase 3 Dev)")
+if path_encoding_service and knowledge_graph_service: # Check if services loaded
+    if st.sidebar.button("Test Path Encoding", disabled=True): # Button is now disabled
+        dummy_edge_primes_int = [2, 3, 5, 7, 11] # Primes for 5 edges
+        dummy_edge_primes_gmpy = [gmpy2.mpz(p) for p in dummy_edge_primes_int]
+        st.sidebar.write(f"Encoding primes: {dummy_edge_primes_gmpy}")
+        encoded_path_data = path_encoding_service.encode_path(dummy_edge_primes_gmpy)
+        if encoded_path_data:
+            code_c, depth_d = encoded_path_data
+            st.sidebar.write(f"Encoded Path: C = {code_c}, d = {depth_d}")
+            decoded_primes = path_encoding_service.decode_path(code_c, depth_d)
+            st.sidebar.write(f"Decoded Primes: {decoded_primes}")
+            if decoded_primes == dummy_edge_primes_gmpy:
+                st.sidebar.success("Encode/Decode Test Passed!")
+            else:
+                st.sidebar.error("Encode/Decode Test Failed!")
+        else:
+            st.sidebar.error("Path encoding failed.")
+    st.sidebar.caption("Path encoding test temporarily disabled.")
+
 # --- Main Area Logic ---
+st.markdown("""
+This section allows you to visualize and analyze the semantic relationships
+within your processed documents and their chunks.
+
+**Getting Started:** If you haven't processed your own files yet,
+consider loading and processing the sample text files provided in the
+`examples/data/` directory (e.g., `lstm_details.txt`, `rnn_details.txt`, etc.)
+via the "Upload" and "Process" tabs.
+""")
+st.markdown("---")
+
 st.header("Analysis Configuration")
 analysis_level = st.radio(
     "Analyze/Visualize Level:", ('Documents', 'Chunks'), key='analysis_level', horizontal=True
@@ -457,6 +489,10 @@ if st.session_state.get('embeddings_generated'):
 
 # --- Visualization Section ---
 st.header("Embedding Space Visualization")
+st.info("""
+- **Show 2D Plot:** Provides a 2-dimensional UMAP projection. Useful for selecting points and seeing primary clusters.
+- **Show 3D Plot:** Offers a 3-dimensional UMAP projection. Can sometimes reveal more complex structures but is not interactive for point selection in this version.
+""")
 if not embeddings_exist:
     if analysis_level == 'Documents':
         st.warning(f"Generate embeddings. Document plotting requires >= {MIN_ITEMS_FOR_PLOT} docs with embeddings.")
@@ -641,6 +677,7 @@ else:
 
          if selection and len(selection['indices']) == 3:
              st.subheader("Triangle Analysis (Plot Selection)")
+             st.caption("Currently analyzes a selection of 3 points. This will be generalized to N-simplex analysis in future versions.")
              selected_indices_from_plot = selection['indices']
              current_plot_labels = st.session_state.get('current_labels', []) # Labels shown on the plot
 
@@ -843,6 +880,7 @@ with st.expander("View Document/Chunk Structure & Select Chunks for Analysis"):
 
 # --- Manual Simplex Analysis Section ---
 st.header("Manual Simplex Analysis")
+st.caption("Select 3 items for analysis. This feature will be expanded for more complex selections.")
 item_options = []
 item_map = {}
 current_level = st.session_state.get('analysis_level', 'Documents')
@@ -1191,29 +1229,3 @@ with st.expander("View Computational Matrices Info", expanded=False):
                 st.error("Analysis Service not available.")
     else:
         st.info("Chunk embedding matrix not yet generated. Please generate embeddings.")
-
-# --- Path Encoding Test Section (Placeholder) ---
-st.sidebar.header("Path Encoding (Phase 3 Dev)")
-if path_encoding_service and knowledge_graph_service: # Check if services loaded
-    # Example: Find a path in the current chunk graph (if it exists)
-    # This is highly dependent on how the graph is populated and nodes are named
-    # For now, let's just test encoding a dummy list of primes
-    if st.sidebar.button("Test Path Encoding"):
-        dummy_edge_primes_int = [2, 3, 5, 7, 11] # Primes for 5 edges
-        dummy_edge_primes_gmpy = [gmpy2.mpz(p) for p in dummy_edge_primes_int]
-        
-        st.sidebar.write(f"Encoding primes: {dummy_edge_primes_gmpy}")
-        encoded_path_data = path_encoding_service.encode_path(dummy_edge_primes_gmpy)
-
-        if encoded_path_data:
-            code_c, depth_d = encoded_path_data
-            st.sidebar.write(f"Encoded Path: C = {code_c}, d = {depth_d}")
-
-            decoded_primes = path_encoding_service.decode_path(code_c, depth_d)
-            st.sidebar.write(f"Decoded Primes: {decoded_primes}")
-            if decoded_primes == dummy_edge_primes_gmpy:
-                st.sidebar.success("Encode/Decode Test Passed!")
-            else:
-                st.sidebar.error("Encode/Decode Test Failed!")
-        else:
-            st.sidebar.error("Path encoding failed.")
