@@ -12,6 +12,7 @@ import streamlit.components.v1 as components # Import Streamlit components
 import graphviz # <<< Add graphviz import
 import gmpy2 # Added gmpy2 for path encoding tests
 import traceback
+from datetime import datetime
 
 # --- Path Setup for Sibling Module Imports ---
 import sys
@@ -137,6 +138,79 @@ def reset_derived_data(clear_docs=False):
     st.session_state.current_coords_2d = None
     st.session_state.current_labels = []
 
+
+# --- Voronoi6 Overview Section ---
+st.title("Voronoi6 - Knowledge Explorer") # Changed title
+st.markdown("---")
+
+st.markdown("""
+### Map the Semantic DNA of Your Information.
+
+Turn your complex collection of documents, code, and text into a dynamic, visual knowledge network. Voronoi6 uses advanced semantic analysis to automatically cluster related concepts, build relational graphs, and reveal the underlying structure of your information ecosystem.
+
+*   📂 **From Document to Insight:** Transform research papers, PDFs, and code into an interactive conceptual map.
+*   🌐 **Navigate Semantic Space:** Explore clusters of related knowledge, identify conceptual gaps, and visualize non-obvious connections.
+*   🪞 **Detect Semantic Drift:** *(Future capability - illustrates vision)* Understand how ideas evolve and diverge using our proprietary Semantic Shadow monitoring.
+*   🛡️ **Private Knowledge Ecosystems:** *(Future capability - illustrates vision)* Build and manage secure knowledge graphs for your team or organization.
+
+Empowering research labs, legal firms, R&D departments, and knowledge-driven organizations to navigate complexity and accelerate discovery.
+
+**Unlock the hidden structure. Visualize your insights.**
+""")
+st.markdown("---")
+
+st.header("How to Use Voronoi6")
+st.markdown("""
+Follow these steps to explore your documents:
+
+1.  **Upload Documents:**
+    *   Navigate to the **"Upload"** tab using the radio buttons at the top.
+    *   Use the file uploader to select one or more TXT or PDF files.
+    *   Click the **"Process Uploaded Files"** button. Your documents will be listed under "View Loaded Documents".
+
+2.  **Process Documents:**
+    *   Navigate to the **"Process"** tab.
+    *   Click **"Chunk Loaded Documents"**. This breaks your documents into smaller, meaningful semantic units.
+    *   Click **"Generate Embeddings"**. This creates numerical representations (embeddings) for your documents and their chunks, enabling semantic analysis.
+        *   *(The "View Document/Chunk Structure" table on this tab will show the chunks after this step).*
+
+3.  **Visualize & Analyze:**
+    *   Navigate to the **"Visualize"** tab.
+    *   **Analysis Level:** Choose to analyze at the 'Documents' or 'Chunks' level. 'Chunks' level is generally more insightful for detailed analysis.
+    *   **UMAP Plot:** Click "Show 2D Plot" (or "Show 3D Plot") to see a spatial representation. Points are colored by source document. Closer points are more semantically similar.
+        *   *Triangle Analysis:* If you select exactly 3 points on the 2D plot (using box or lasso select), the system will analyze their conceptual center.
+    *   **Document/Chunk Structure & Table-Based Analysis:**
+        *   Expand this section to see a table of chunks.
+        *   Use the multiselect below the table to choose exactly 3 chunks and click "Analyze Table Selection" for Simplex Analysis.
+    *   **Manual Simplex Analysis:** Select 3 documents or chunks using the dropdowns and click "Analyze Manual Selection".
+    *   **Nearest Neighbors Analysis:** Select a query item and find its most similar neighbors.
+    *   **Semantic Chunk Graph:** (Appears if embeddings for chunks exist)
+        *   Adjust the "Similarity Threshold" slider.
+        *   Click "Show Semantic Graph". Nodes are chunks (attempts to color by source document), edges show similarity above the threshold.
+        *   View tables for "Top Connected Chunks (Highest Degree)" and "Top Bridge Chunks (Highest Betweenness Centrality)".
+        *   Explore "Detected Communities".
+    *   **(Optional) Computational Matrices Info:** View details about the underlying embedding and similarity matrices.
+
+4.  **(Future) Document Comparison & Advanced Features:** Other tabs explore more advanced functionalities that are under development.
+""")
+st.markdown("---")
+
+# Keep existing stats display if you have it, or add a simplified version:
+if 'documents' in st.session_state and st.session_state.documents:
+    num_docs = len(st.session_state.documents)
+    num_chunks = 0
+    if st.session_state.get('all_chunk_labels'):
+        num_chunks = len(st.session_state['all_chunk_labels'])
+    
+    col1, col2 = st.columns(2)
+    col1.metric("Loaded Documents", num_docs)
+    col2.metric("Processed Chunks", num_chunks)
+else:
+    col1, col2 = st.columns(2)
+    col1.metric("Loaded Documents", 0)
+    col2.metric("Processed Chunks", 0)
+
+st.caption(f"Voronoi6 App - v6.0 Demo - Last Updated: {datetime.now().strftime('%Y-%m-%d')}") # Added date
 
 # --- Streamlit App UI ---
 st.title("Voronoi5 - Document Analysis Tool")
