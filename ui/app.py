@@ -107,6 +107,7 @@ def initialize_session_state():
         'current_coords_2d': None,
         'current_labels': [],
         'coords_3d': None,
+        'current_view': 'splash', # Possible values: 'splash', 'analysis'
     }
     for key, value in defaults.items():
         if key not in st.session_state:
@@ -139,117 +140,73 @@ def reset_derived_data(clear_docs=False):
     st.session_state.current_labels = []
 
 
-# --- Voronoi6 Overview Section ---
-st.title("Voronoi6 - Knowledge Explorer") # Changed title
-st.markdown("---")
-
-st.markdown("""
-### Map the Semantic DNA of Your Information.
-
-Turn your complex collection of documents, code, and text into a dynamic, visual knowledge network. Voronoi6 uses advanced semantic analysis to automatically cluster related concepts, build relational graphs, and reveal the underlying structure of your information ecosystem.
-
-*   📂 **From Document to Insight:** Transform research papers, PDFs, and code into an interactive conceptual map.
-*   🌐 **Navigate Semantic Space:** Explore clusters of related knowledge, identify conceptual gaps, and visualize non-obvious connections.
-*   🪞 **Detect Semantic Drift:** *(Future capability - illustrates vision)* Understand how ideas evolve and diverge using our proprietary Semantic Shadow monitoring.
-*   🛡️ **Private Knowledge Ecosystems:** *(Future capability - illustrates vision)* Build and manage secure knowledge graphs for your team or organization.
-
-Empowering research labs, legal firms, R&D departments, and knowledge-driven organizations to navigate complexity and accelerate discovery.
-
-**Unlock the hidden structure. Visualize your insights.**
-""")
-st.markdown("---")
-
-st.header("How to Use Voronoi6")
-st.markdown("""
-Follow these steps to explore your documents:
-
-1.  **Upload Documents:**
-    *   Navigate to the **"Upload"** tab using the radio buttons at the top.
-    *   Use the file uploader to select one or more TXT or PDF files.
-    *   Click the **"Process Uploaded Files"** button. Your documents will be listed under "View Loaded Documents".
-
-2.  **Process Documents:**
-    *   Navigate to the **"Process"** tab.
-    *   Click **"Chunk Loaded Documents"**. This breaks your documents into smaller, meaningful semantic units.
-    *   Click **"Generate Embeddings"**. This creates numerical representations (embeddings) for your documents and their chunks, enabling semantic analysis.
-        *   *(The "View Document/Chunk Structure" table on this tab will show the chunks after this step).*
-
-3.  **Visualize & Analyze:**
-    *   Navigate to the **"Visualize"** tab.
-    *   **Analysis Level:** Choose to analyze at the 'Documents' or 'Chunks' level. 'Chunks' level is generally more insightful for detailed analysis.
-    *   **UMAP Plot:** Click "Show 2D Plot" (or "Show 3D Plot") to see a spatial representation. Points are colored by source document. Closer points are more semantically similar.
-        *   *Triangle Analysis:* If you select exactly 3 points on the 2D plot (using box or lasso select), the system will analyze their conceptual center.
-    *   **Document/Chunk Structure & Table-Based Analysis:**
-        *   Expand this section to see a table of chunks.
-        *   Use the multiselect below the table to choose exactly 3 chunks and click "Analyze Table Selection" for Simplex Analysis.
-    *   **Manual Simplex Analysis:** Select 3 documents or chunks using the dropdowns and click "Analyze Manual Selection".
-    *   **Nearest Neighbors Analysis:** Select a query item and find its most similar neighbors.
-    *   **Semantic Chunk Graph:** (Appears if embeddings for chunks exist)
-        *   Adjust the "Similarity Threshold" slider.
-        *   Click "Show Semantic Graph". Nodes are chunks (attempts to color by source document), edges show similarity above the threshold.
-        *   View tables for "Top Connected Chunks (Highest Degree)" and "Top Bridge Chunks (Highest Betweenness Centrality)".
-        *   Explore "Detected Communities".
-    *   **(Optional) Computational Matrices Info:** View details about the underlying embedding and similarity matrices.
-
-4.  **(Future) Document Comparison & Advanced Features:** Other tabs explore more advanced functionalities that are under development.
-""")
-st.markdown("---")
-
-# Keep existing stats display if you have it, or add a simplified version:
-if 'documents' in st.session_state and st.session_state.documents:
-    num_docs = len(st.session_state.documents)
-    num_chunks = 0
-    if st.session_state.get('all_chunk_labels'):
-        num_chunks = len(st.session_state['all_chunk_labels'])
+# --- Splash Page ---
+def render_splash_page():
+    st.title("Voronoi6 - Knowledge Explorer")
+    st.markdown("---")
+    st.markdown("""
+    ### Map the Semantic DNA of Your Information.
     
-    col1, col2 = st.columns(2)
-    col1.metric("Loaded Documents", num_docs)
-    col2.metric("Processed Chunks", num_chunks)
-else:
-    col1, col2 = st.columns(2)
-    col1.metric("Loaded Documents", 0)
-    col2.metric("Processed Chunks", 0)
+    Turn your complex collection of documents, code, and text into a dynamic, visual knowledge network. Voronoi6 uses advanced semantic analysis to automatically cluster related concepts, build relational graphs, and reveal the underlying structure of your information ecosystem.
+    
+    *   📂 **From Document to Insight:** Transform research papers, PDFs, and code into an interactive conceptual map.
+    *   🌐 **Navigate Semantic Space:** Explore clusters of related knowledge, identify conceptual gaps, and visualize non-obvious connections.
+    *   🪞 **Detect Semantic Drift:** *(Future capability - illustrates vision)* Understand how ideas evolve and diverge using our proprietary Semantic Shadow monitoring.
+    *   🛡️ **Private Knowledge Ecosystems:** *(Future capability - illustrates vision)* Build and manage secure knowledge graphs for your team or organization.
+    
+    Empowering research labs, legal firms, R&D departments, and knowledge-driven organizations to navigate complexity and accelerate discovery.
+    
+    **Unlock the hidden structure. Visualize your insights.**
+    """)
+    st.markdown("---")
+    st.header("How to Use Voronoi6")
+    st.markdown("""
+    Follow these steps to explore your documents:
+    
+    1.  **Upload Documents:**
+        *   Use the file uploader in the left panel to select one or more TXT or PDF files.
+        *   Click the **"Process Uploaded Files"** button. Your documents will be listed under "View Loaded Documents".
+    
+    2.  **Process Documents:**
+        *   After uploading, click **"Process Uploaded Files"**.
+    
+    3.  **Visualize & Analyze:**
+        *   Once processed, you will be taken to the analysis and visualization tools.
+    """)
+    st.markdown("---")
+    # No document loading controls here; they are in the sidebar.
+    # Optionally, show loaded docs summary here if desired.
 
-st.caption(f"Voronoi6 App - v6.0 Demo - Last Updated: {datetime.now().strftime('%Y-%m-%d')}") # Added date
-
-# --- Streamlit App UI ---
-st.title("Voronoi6 - Document Analysis Tool")
-
-# Sidebar for Loading and Options
+# --- Sidebar for Loading and Options (always visible) ---
 st.sidebar.header("Document Loading")
-
 uploaded_files = st.sidebar.file_uploader(
     "Upload Documents (TXT or PDF)",
     type=['txt', 'pdf'],
     accept_multiple_files=True,
-    key="file_uploader" # Add key to help Streamlit manage state
+    key="file_uploader"
 )
-
 if st.sidebar.button("Process Uploaded Files"):
     if uploaded_files:
         new_docs_added = []
         current_doc_names = {doc.title for doc in st.session_state.documents}
         should_reset_derived = False
-
         for uploaded_file in uploaded_files:
             if uploaded_file.name in current_doc_names:
                 st.sidebar.warning(f"Skipping '{uploaded_file.name}': Name already exists.")
                 continue
-
             text = ""
             try:
                 if uploaded_file.type == 'application/pdf':
                     reader = PdfReader(uploaded_file)
                     text = "".join(page.extract_text() for page in reader.pages if page.extract_text())
                     if not text:
-                         st.sidebar.error(f"Could not extract text from PDF '{uploaded_file.name}'. Skipping.")
-                         continue
+                        st.sidebar.error(f"Could not extract text from PDF '{uploaded_file.name}'. Skipping.")
+                        continue
                 elif uploaded_file.type == 'text/plain':
                     text = uploaded_file.getvalue().decode("utf-8")
                 else:
                     st.sidebar.error(f"Unsupported file type: {uploaded_file.type} for '{uploaded_file.name}'")
                     continue
-
                 new_doc = Document(
                     title=uploaded_file.name, content=text,
                     metadata={'source': 'upload', 'type': uploaded_file.type, 'size': uploaded_file.size}
@@ -258,87 +215,183 @@ if st.sidebar.button("Process Uploaded Files"):
                 current_doc_names.add(uploaded_file.name)
                 st.sidebar.success(f"Processed '{uploaded_file.name}'")
                 should_reset_derived = True
-
             except Exception as e:
                 st.sidebar.error(f"Error processing file '{uploaded_file.name}': {e}")
-
         if new_docs_added:
             if should_reset_derived:
-                 print("New documents added, resetting derived data (embeddings, plots, matrices).")
-                 reset_derived_data(clear_docs=False)
-
+                print("New documents added, resetting derived data (embeddings, plots, matrices).")
+                reset_derived_data(clear_docs=False)
             st.session_state.documents = st.session_state.documents + new_docs_added
             st.sidebar.info(f"Added {len(new_docs_added)} new documents.")
+            st.session_state.current_view = 'analysis'
             st.rerun()
     else:
         st.sidebar.warning("No files selected in the uploader to process.")
-
 if st.sidebar.button("Clear All Documents"):
     reset_derived_data(clear_docs=True)
     st.sidebar.info("All loaded documents and data cleared.")
+    st.session_state.current_view = 'splash'
     st.rerun()
-
 st.sidebar.caption("Use the 'x' in the uploader UI to remove selected files before processing.")
+if st.session_state.documents:
+    with st.sidebar.expander("View Loaded Documents", expanded=False):
+        for i, doc in enumerate(st.session_state.documents):
+            embed_status = "Yes" if doc.embedding is not None else "No"
+            st.markdown(f"**{i+1}. {doc.title}** - Doc Embedding: {embed_status}")
+            if hasattr(doc, 'chunks') and doc.chunks:
+                chunk_embed_counts = sum(1 for chunk in doc.chunks if chunk.embedding is not None)
+                st.markdown(f"    Chunks: {len(doc.chunks)} ({chunk_embed_counts} embedded)")
+            elif hasattr(doc, 'chunks'):
+                st.markdown("    Chunks: 0")
+            else:
+                st.markdown("    Chunks: Not Processed")
+            st.divider()
 
-if not st.session_state.documents:
-    st.info("Upload documents and click 'Process Uploaded Files' to begin.")
-    st.stop()
+# --- Analysis Page ---
+def render_analysis_page():
+    st.title("Voronoi6 - Document Analysis Tool")
+    # --- Step Explanation Panel ---
+    st.subheader("Current Status & Next Steps")
+    last_action = st.session_state.get("last_action")
+    explanation = ""
+    num_docs = len(st.session_state.get('documents', []))
+    num_chunks = st.session_state.get('num_chunks_processed', 0)
+    num_chunk_embeddings = len(st.session_state.get('all_chunk_labels', []))
+    num_doc_embeddings = sum(1 for doc in st.session_state.documents if doc.embedding is not None)
+    if last_action == "embedded":
+        explanation = (
+            f"**Embeddings Generated!** Semantic embeddings are now ready for **{num_doc_embeddings} documents** and **{num_chunk_embeddings} chunks**.\n\n"
+            f"*   Each embedding is a high-dimensional vector representing the meaning of the text. "
+            f"This allows the system to understand and compare content computationally.\n"
+            f"*   **Next:** Explore the semantic relationships!\n"
+            f"    *   Select 'Chunks' under 'Analysis Configuration'.\n"
+            f"    *   Click 'Show 2D Plot' to visualize the semantic space.\n"
+            f"    *   Explore the 'Semantic Chunk Graph' to see direct similarity connections."
+        )
+    elif last_action == "chunked":
+        explanation = (
+            f"**Chunking Complete!** Your documents have been segmented into **{num_chunks}** chunks.\n\n"
+            f"*   These chunks aim to capture meaningful passages or structural sections from your documents. "
+            f"Our Contextual Chunker first looks for structural cues (like chapters); if not prominent, "
+            f"it uses semantic similarity between sentences to find natural topic breaks.\n"
+            f"*   You can see an overview in the 'View Document/Chunk Structure' expander (below, after generating embeddings).\n"
+            f"*   **Next Step:** Click **'Generate Embeddings'** (in the sidebar or a dedicated 'Process' section if you create one). "
+            f"This will convert each chunk and document into numerical embeddings."
+        )
+    elif num_docs > 0:
+        explanation = (
+            f"**Welcome to the Analysis Workbench!** **{num_docs} documents** are loaded.\n\n"
+            f"*   **Next Step: Chunking.** Click **'Chunk Loaded Documents'** (in the sidebar or a 'Process' section). "
+            f"This breaks documents into smaller, semantically coherent units. Our Contextual Chunker "
+            f"prioritizes structure (chapters) then falls back to semantic breaks for nuanced segmentation.\n"
+            f"*   After chunking, you will **'Generate Embeddings'** to enable analysis."
+        )
+    else:
+        explanation = "Please go to the 'Upload' page to load and process documents first."
+    st.info(explanation)
+    st.markdown("---")
+    num_docs = len(st.session_state.documents) if 'documents' in st.session_state and st.session_state.documents else 0
+
+    # Use all_chunk_labels only if it exists and is non-empty, else sum all doc chunks
+    if st.session_state.get('all_chunk_labels') and len(st.session_state['all_chunk_labels']) > 0:
+        num_chunks = len(st.session_state['all_chunk_labels'])
+    else:
+        num_chunks = sum(len(doc.chunks) for doc in st.session_state.documents if hasattr(doc, 'chunks') and doc.chunks)
+
+    num_chunk_embeddings = sum(
+        1 for doc in st.session_state.documents if hasattr(doc, 'chunks') and doc.chunks
+        for chunk in doc.chunks if getattr(chunk, 'embedding', None) is not None
+    )
+
+    col1, col2, col3 = st.columns(3)
+    col1.metric("Loaded Documents", num_docs)
+    col2.metric("Processed Chunks", num_chunks)
+    col3.metric("Generated Embeddings", num_chunk_embeddings)
+    st.caption(f"Voronoi6 App - v6.0 Demo - Last Updated: {datetime.now().strftime('%Y-%m-%d')}")
+    st.write("Analysis and visualization tools go here. (To be refactored in next steps.)")
+    # ...rest of analysis UI...
+
+    st.header("Analysis Configuration")
+    st.radio(
+        "Analyze/Visualize Level:", ('Documents', 'Chunks'),
+        key='analysis_level', horizontal=True
+    )
+    current_selected_analysis_level = st.session_state.analysis_level
+    if current_selected_analysis_level == 'Documents':
+        st.info(
+            "**Document Level Analysis:** \n\n"
+            "- Each point in the visualizations represents an entire document. \n"
+            "- This gives a high-level overview of how your documents relate to each other semantically. \n"
+            "- Useful for finding broadly similar documents or distinct thematic groups. \n"
+            "- *Note: Dimensionality reduction (UMAP) requires at least 4 documents for a stable plot.*"
+        )
+    elif current_selected_analysis_level == 'Chunks':
+        st.info(
+            "**Chunk Level Analysis:** \n\n"
+            "- Each point represents a smaller, semantically coherent chunk of text from your documents. \n"
+            "- This provides a more granular view, revealing specific areas of overlap or distinct sub-topics within and between documents. \n"
+            "- Ideal for detailed exploration of conceptual relationships and identifying nuanced connections. \n"
+            "- The Semantic Chunk Graph and detailed metrics are based on this level."
+        )
+    st.markdown("---")
+
+# --- Main App Routing ---
+if st.session_state.get('current_view', 'splash') == 'splash':
+    render_splash_page()
+else:
+    render_analysis_page()
 
 # --- Processing Section ---
 st.sidebar.header("Processing")
 
 # Chunking Button
-if st.sidebar.button("Chunk Loaded Documents", disabled=not chunker):
+if st.sidebar.button("Chunk Loaded Documents", disabled=not chunker or not st.session_state.documents):
     if chunker and st.session_state.documents:
         updated_documents = []
         error_occurred = False
-        # --- Main Try Block for Chunking ---
-        try: # <--- Indent Level 1
+        try:
             with st.spinner("Chunking documents..."):
                 for doc in st.session_state.documents:
-                    try: # <-- Indent Level 2 (Inner Try)
+                    try:
                         if not hasattr(doc, 'chunks'): doc.chunks = []
                         doc.chunks = chunker.chunk_document(doc)
                         updated_documents.append(doc)
-                    except Exception as e: # <-- Indent Level 2 (Matches Inner Try)
-                         st.sidebar.error(f"Error chunking doc '{doc.title}': {e}")
-                         updated_documents.append(doc) # Keep original doc on error
-                         error_occurred = True
-
-            st.session_state.documents = updated_documents # Update state inside try
+                    except Exception as e:
+                        st.sidebar.error(f"Error chunking doc '{doc.title}': {e}")
+                        updated_documents.append(doc)
+                        error_occurred = True
+            st.session_state.documents = updated_documents
             msg = f"Chunking complete for {len(st.session_state.documents)} documents."
             if error_occurred:
                 st.sidebar.warning(msg + " (with errors)")
             else:
                 st.sidebar.success(msg)
-
-        except Exception as e: # <--- Indent Level 1 (Matches Outer Try)
-            st.sidebar.error(f"An unexpected error occurred during chunking: {e}")
-            error_occurred = True # Ensure error is flagged if outer try fails
-
-            # Reset state and rerun AFTER try/except finishes
-            # Only reset embeddings if chunking didn't completely fail
-            if not error_occurred or updated_documents: # Avoid reset if initial error prevented any updates
-                 reset_derived_data(clear_docs=False)
+            # Store total chunks after chunking
+            total_chunks_after_chunking = sum(len(doc.chunks) for doc in st.session_state.documents if hasattr(doc, 'chunks'))
+            st.session_state.num_chunks_processed = total_chunks_after_chunking
+            st.session_state.last_action = "chunked"
             st.rerun()
-
+        except Exception as e:
+            st.sidebar.error(f"An unexpected error occurred during chunking: {e}")
+            error_occurred = True
+            if not error_occurred or updated_documents:
+                reset_derived_data(clear_docs=False)
+            st.rerun()
     elif not chunker:
-         st.sidebar.error("Chunking Service not available.")
+        st.sidebar.error("Chunking Service not available.")
     else:
         st.sidebar.warning("No documents loaded to chunk.")
 
 # Embedding Button
-if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
+if st.sidebar.button("Generate Embeddings", disabled=not embedding_service or not st.session_state.documents):
     if embedding_service and st.session_state.documents:
         try:
             with st.spinner("Generating embeddings for documents and chunks..."):
                 docs_processed_count = 0
                 chunks_processed_count = 0
                 error_occurred = False
-                updated_documents = list(st.session_state.documents) # Work on a copy
-
+                updated_documents = list(st.session_state.documents)
                 for i, doc in enumerate(updated_documents):
-                    # 1. Process Document Embedding
                     if doc.embedding is None:
                         try:
                             doc.embedding = embedding_service.generate_embedding(doc.content)
@@ -346,9 +399,7 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                         except Exception as e:
                             st.sidebar.error(f"Error embedding doc '{doc.title}': {e}")
                             error_occurred = True
-                            continue # Skip to next doc if doc embedding fails
-
-                    # 2. Process Chunk Embeddings (if chunks exist)
+                            continue
                     if hasattr(doc, 'chunks') and doc.chunks:
                         for chunk_idx, chunk in enumerate(doc.chunks):
                             if chunk.embedding is None:
@@ -358,72 +409,43 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service):
                                 except Exception as e:
                                     st.sidebar.error(f"Error embedding chunk {chunk_idx} in doc '{doc.title}': {e}")
                                     error_occurred = True
-                                    # Optionally, decide if you want to stop all embedding for this doc or continue with other chunks
-                    updated_documents[i] = doc # Update the document in the list
-
-                st.session_state.documents = updated_documents # Update session state with processed documents
-
-                # After processing all documents and their chunks, consolidate chunk embeddings
+                    updated_documents[i] = doc
+                st.session_state.documents = updated_documents
                 all_chunk_embeddings = []
                 all_chunk_labels = []
-                chunk_label_lookup_dict = {} # For debugging and easier lookup
-
+                chunk_label_lookup_dict = {}
                 for doc_idx, doc in enumerate(st.session_state.documents):
                     if hasattr(doc, 'chunks') and doc.chunks:
                         for chunk_idx, chunk in enumerate(doc.chunks):
                             if chunk.embedding is not None:
                                 all_chunk_embeddings.append(chunk.embedding)
-                                # --- Use Consistent Shortened Label ---
                                 short_title = doc.title[:10] + ('...' if len(doc.title) > 10 else '')
                                 short_context = chunk.context_label[:15] + ('...' if hasattr(chunk, 'context_label') and len(chunk.context_label) > 15 else '')
                                 current_chunk_label = f"{short_title}::C{chunk_idx+1}({short_context})"
                                 all_chunk_labels.append(current_chunk_label)
-                                # Store the chunk object AND its document's title
                                 chunk_label_lookup_dict[current_chunk_label] = (chunk, doc.title)
-
-
                 if all_chunk_embeddings:
                     st.session_state.all_chunk_embeddings_matrix = np.array(all_chunk_embeddings)
                     st.session_state.all_chunk_labels = all_chunk_labels
-                    st.session_state.chunk_label_lookup_dict = chunk_label_lookup_dict # Save for potential use
-
-                    # --- START DEBUG EMBEDDING ---
-                    # st.sidebar.write("--- DEBUG EMBEDDING ---")
-                    # matrix_shape_debug = st.session_state.all_chunk_embeddings_matrix.shape if st.session_state.all_chunk_embeddings_matrix is not None else "None"
-                    # labels_len_debug = len(st.session_state.all_chunk_labels) if st.session_state.all_chunk_labels is not None else "None"
-                    # lookup_len_debug = len(st.session_state.chunk_label_lookup_dict) if st.session_state.chunk_label_lookup_dict is not None else "None"
-                    # st.sidebar.write(f"Post-consolidation: Matrix shape: {matrix_shape_debug}, Labels len: {labels_len_debug}, Lookup len: {lookup_len_debug}")
-                    # if st.session_state.all_chunk_labels and isinstance(st.session_state.all_chunk_labels, list) and len(st.session_state.all_chunk_labels) > 0:
-                    #    st.sidebar.write(f"First label: {st.session_state.all_chunk_labels[0]}")
-                    # if st.session_state.chunk_label_lookup_dict and isinstance(st.session_state.chunk_label_lookup_dict, dict) and len(st.session_state.chunk_label_lookup_dict) > 0:
-                    #    st.sidebar.write(f"First lookup entry example (first key): {list(st.session_state.chunk_label_lookup_dict.keys())[0]}")
-                    # st.sidebar.write("--- END DEBUG ---")
-                    # --- END DEBUG EMBEDDING ---
+                    st.session_state.chunk_label_lookup_dict = chunk_label_lookup_dict
                 else:
-                    st.session_state.all_chunk_embeddings_matrix = None # Ensure it's reset if no chunks
+                    st.session_state.all_chunk_embeddings_matrix = None
                     st.session_state.all_chunk_labels = []
                     st.session_state.chunk_label_lookup_dict = {}
-
-
                 st.session_state.embeddings_generated = True
                 msg = f"Embeddings generated for {docs_processed_count} documents and {chunks_processed_count} chunks."
                 if error_occurred:
                     st.sidebar.warning(msg + " (with errors)")
                 else:
                     st.sidebar.success(msg)
-
-                # Clear any previous plot data as embeddings have changed
-                st.session_state.scatter_fig_2d = None
-                st.session_state.current_coords_2d = None
-                st.session_state.current_labels = []
-                st.session_state.coords_3d = None
+                st.session_state.num_doc_embeddings_processed = docs_processed_count
+                st.session_state.num_chunk_embeddings_processed = chunks_processed_count
+                st.session_state.last_action = "embedded"
                 st.rerun()
-
         except Exception as e:
             st.sidebar.error(f"An unexpected error occurred during embedding generation: {e}")
-            # Potentially reset parts of the state if a major failure occurs
-            reset_derived_data(clear_docs=False) # Reset relevant parts
-            st.rerun() # Rerun to reflect state changes
+            reset_derived_data(clear_docs=False)
+            st.rerun()
     elif not embedding_service:
         st.sidebar.error("Embedding Service not available.")
     else:
@@ -462,30 +484,58 @@ via the "Upload" and "Process" tabs.
 """)
 st.markdown("---")
 
-st.header("Analysis Configuration")
-analysis_level = st.radio(
-    "Analyze/Visualize Level:", ('Documents', 'Chunks'), key='analysis_level', horizontal=True
-)
-
 # Check if embeddings exist at the required level
 embeddings_exist = False
 items_available_for_level = 0
 can_analyze = False # Flag to check if enough data for analysis exists
 
 if st.session_state.get('embeddings_generated'):
-    if analysis_level == 'Documents':
+    if st.session_state.analysis_level == 'Documents':
         items_available_for_level = sum(1 for doc in st.session_state.documents if doc.embedding is not None)
         if items_available_for_level >= MIN_ITEMS_FOR_PLOT:
             embeddings_exist = True # Enough docs with embeddings for plotting
         if items_available_for_level >= 1: # Need at least 1 for analysis
              can_analyze = True
-    elif analysis_level == 'Chunks':
+    elif st.session_state.analysis_level == 'Chunks':
         # Check the matrix directly
         chunk_matrix = st.session_state.get('all_chunk_embeddings_matrix')
         if chunk_matrix is not None and chunk_matrix.shape[0] > 0:
              items_available_for_level = chunk_matrix.shape[0]
              embeddings_exist = True # Embeddings generated if matrix exists and is not empty
              can_analyze = True
+
+# --- Similarity Matrix/Table Section ---
+st.header("Pairwise Similarity Matrix")
+
+# Determine which embeddings and labels to use based on analysis level
+if st.session_state.analysis_level == 'Documents':
+    docs_with_embeddings = [doc for doc in st.session_state.documents if doc.embedding is not None]
+    if len(docs_with_embeddings) > 1:
+        embeddings_matrix = np.array([doc.embedding for doc in docs_with_embeddings])
+        labels = [doc.title for doc in docs_with_embeddings]
+    else:
+        embeddings_matrix = None
+        labels = []
+elif st.session_state.analysis_level == 'Chunks':
+    embeddings_matrix = st.session_state.get('all_chunk_embeddings_matrix')
+    labels = st.session_state.get('all_chunk_labels', [])
+    if embeddings_matrix is not None and embeddings_matrix.shape[0] <= 1:
+        embeddings_matrix = None
+        labels = []
+else:
+    embeddings_matrix = None
+    labels = []
+
+if embeddings_matrix is not None and len(labels) > 1:
+    similarity_matrix = analysis_service.calculate_similarity_matrix(embeddings_matrix)
+    if similarity_matrix is not None:
+        import pandas as pd
+        df_sim = pd.DataFrame(similarity_matrix, index=labels, columns=labels)
+        st.dataframe(df_sim.style.format("{:.2f}"), height=min(600, 40 + 24 * len(labels)))
+    else:
+        st.info("Could not compute similarity matrix.")
+else:
+    st.info("Need at least 2 items with embeddings to show similarity matrix.")
 
 # --- Visualization Section ---
 st.header("Embedding Space Visualization")
@@ -494,7 +544,7 @@ st.info("""
 - **Show 3D Plot:** Offers a 3-dimensional UMAP projection. Can sometimes reveal more complex structures but is not interactive for point selection in this version.
 """)
 if not embeddings_exist:
-    if analysis_level == 'Documents':
+    if st.session_state.analysis_level == 'Documents':
         st.warning(f"Generate embeddings. Document plotting requires >= {MIN_ITEMS_FOR_PLOT} docs with embeddings.")
     else: # Chunks
         st.warning("Generate embeddings for chunks.")
@@ -502,7 +552,7 @@ elif not analysis_service or not visualization_service:
     st.error("Analysis or Visualization Service not available.")
 else:
     col1, col2 = st.columns(2)
-    plot_title_suffix = analysis_level
+    plot_title_suffix = st.session_state.analysis_level
 
     # --- Get Embeddings/Labels for Plotting ---
     embeddings_to_plot = None
@@ -511,7 +561,7 @@ else:
     doc_color_map = None # Initialize color map
     color_categories_for_plot = None # Initialize color categories for plot
 
-    if analysis_level == 'Documents':
+    if st.session_state.analysis_level == 'Documents':
         # Only consider docs with embeddings for plotting
         docs_with_embeddings = [doc for doc in st.session_state.documents if doc.embedding is not None]
         if len(docs_with_embeddings) >= MIN_ITEMS_FOR_PLOT:
@@ -533,7 +583,7 @@ else:
                   st.session_state.pop('doc_color_map', None)
 
         # else: plotting buttons will be disabled
-    elif analysis_level == 'Chunks':
+    elif st.session_state.analysis_level == 'Chunks':
         embeddings_to_plot = st.session_state.get('all_chunk_embeddings_matrix')
         labels_to_plot = st.session_state.get('all_chunk_labels', [])
         if labels_to_plot:
@@ -587,7 +637,7 @@ else:
 
     # --- Plotting Buttons ---
     # Ensure we have data before enabling buttons
-    can_plot_now = embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (MIN_ITEMS_FOR_PLOT if analysis_level == 'Documents' else 1)
+    can_plot_now = embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (MIN_ITEMS_FOR_PLOT if st.session_state.analysis_level == 'Documents' else 1)
 
     with col1:
         if st.button("Show 2D Plot", disabled=not can_plot_now):
@@ -595,14 +645,14 @@ else:
             st.session_state.current_coords_2d = None
             st.session_state.current_labels = []
 
-            if analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT:
+            if st.session_state.analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT:
                 st.error(f"Plotting requires >= {MIN_ITEMS_FOR_PLOT} documents with embeddings.")
             else: # Only proceed if enough items
                 try:
-                    with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 2D..."):
+                    with st.spinner(f"Reducing {st.session_state.analysis_level.lower()} dimensions to 2D..."):
                         # Ensure embeddings_to_plot is valid before passing
                         # The check in AnalysisService is now primary, but this is a safety layer
-                        if embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (1 if analysis_level == 'Chunks' else MIN_ITEMS_FOR_PLOT):
+                        if embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (1 if st.session_state.analysis_level == 'Chunks' else MIN_ITEMS_FOR_PLOT):
                              coords_2d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=2)
                              # Check if reduce_dimensions returned None (due to error or insufficient samples)
                              if coords_2d is None:
@@ -613,8 +663,8 @@ else:
                                  st.session_state.current_labels = labels_to_plot
                                  # Use the generated color list if plotting chunks
                                  # Pass titles for color categories, and map for colors
-                                 color_categories = color_categories_for_plot if analysis_level == 'Chunks' else None
-                                 color_map_arg = doc_color_map if analysis_level == 'Chunks' else None
+                                 color_categories = color_categories_for_plot if st.session_state.analysis_level == 'Chunks' else None
+                                 color_map_arg = doc_color_map if st.session_state.analysis_level == 'Chunks' else None
 
                                  fig_2d = visualization_service.plot_scatter_2d(
                                      coords=coords_2d, labels=labels_to_plot,
@@ -635,20 +685,20 @@ else:
             st.session_state.current_coords_2d = None
             st.session_state.current_labels = []
 
-            if analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT:
+            if st.session_state.analysis_level == 'Documents' and items_available_for_level < MIN_ITEMS_FOR_PLOT:
                 st.error(f"Plotting requires >= {MIN_ITEMS_FOR_PLOT} documents with embeddings.")
             else: # Only proceed if enough items
                 try:
-                    with st.spinner(f"Reducing {analysis_level.lower()} dimensions to 3D..."):
+                    with st.spinner(f"Reducing {st.session_state.analysis_level.lower()} dimensions to 3D..."):
                         # Ensure embeddings_to_plot is valid before passing
-                        if embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (1 if analysis_level == 'Chunks' else MIN_ITEMS_FOR_PLOT):
+                        if embeddings_to_plot is not None and embeddings_to_plot.shape[0] >= (1 if st.session_state.analysis_level == 'Chunks' else MIN_ITEMS_FOR_PLOT):
                             coords_3d = analysis_service.reduce_dimensions(embeddings_to_plot, n_components=3)
                             # Check if reduce_dimensions returned None
                             if coords_3d is None:
                                 st.error("Failed to generate 3D coordinates (check logs for details).")
                             else:
                                 # Use the generated color list if available (handles both levels)
-                                color_arg = color_categories_for_plot if analysis_level == 'Chunks' else None
+                                color_arg = color_categories_for_plot if st.session_state.analysis_level == 'Chunks' else None
                                 fig_3d = visualization_service.plot_scatter_3d(
                                    coords=coords_3d, labels=labels_to_plot,
                                    title=f"3D UMAP Projection of {plot_title_suffix}",
@@ -693,7 +743,7 @@ else:
                      high_dim_corpus_matrix = None
                      high_dim_corpus_labels = []
 
-                     if analysis_level == 'Documents':
+                     if st.session_state.analysis_level == 'Documents':
                          docs_map = {doc.title: doc for doc in st.session_state.documents if doc.embedding is not None}
                          selected_docs = [docs_map.get(lbl) for lbl in selected_labels_display]
                          if None in selected_docs or any(doc.embedding is None for doc in selected_docs):
@@ -704,7 +754,7 @@ else:
                              high_dim_corpus_matrix = np.array([doc.embedding for doc in all_docs_with_embeddings])
                              high_dim_corpus_labels = [doc.title for doc in all_docs_with_embeddings]
 
-                     elif analysis_level == 'Chunks':
+                     elif st.session_state.analysis_level == 'Chunks':
                          high_dim_corpus_matrix = st.session_state.get('all_chunk_embeddings_matrix')
                          high_dim_corpus_labels = st.session_state.get('all_chunk_labels', [])
                          # Assumes the plot indices directly correspond to the matrix rows
@@ -958,30 +1008,30 @@ else:
 # --- Nearest Neighbors Analysis Section ---
 st.header("Nearest Neighbors Analysis")
 if not can_analyze:
-    st.warning(f"Generate embeddings for at least 1 {analysis_level.lower()} first for KNN.")
+    st.warning(f"Generate embeddings for at least 1 {st.session_state.analysis_level.lower()} first for KNN.")
 elif not analysis_service:
      st.error("Analysis Service not available.")
 else:
     query_options = {}
     num_items = 0
 
-    if analysis_level == 'Documents':
+    if st.session_state.analysis_level == 'Documents':
         items_with_embeddings = [doc for doc in st.session_state.documents if doc.embedding is not None]
         num_items = len(items_with_embeddings)
         query_options = {doc.title: doc.title for doc in items_with_embeddings}
-    elif analysis_level == 'Chunks':
+    elif st.session_state.analysis_level == 'Chunks':
         chunk_labels = st.session_state.get('all_chunk_labels', [])
         num_items = len(chunk_labels)
         query_options = {label: label for label in chunk_labels}
 
     if not query_options:
-        st.info(f"No {analysis_level.lower()} with embeddings available for KNN query.")
+        st.info(f"No {st.session_state.analysis_level.lower()} with embeddings available for KNN query.")
     else:
-        selected_key = st.selectbox(f"Select Query {analysis_level[:-1]}:", options=query_options.keys())
+        selected_key = st.selectbox(f"Select Query {st.session_state.analysis_level[:-1]}:", options=query_options.keys())
         max_k = max(0, num_items - 1)
 
         if max_k < 1:
-             st.warning(f"Need at least 2 {analysis_level.lower()} with embeddings for KNN comparison.")
+             st.warning(f"Need at least 2 {st.session_state.analysis_level.lower()} with embeddings for KNN comparison.")
         else:
             k_neighbors = st.number_input("Number of neighbors (k):", min_value=1, max_value=max_k, value=min(DEFAULT_K, max_k), step=1)
 
@@ -991,11 +1041,11 @@ else:
 
                 try:
                     # --- Get Query Embedding ---
-                    if analysis_level == 'Documents':
+                    if st.session_state.analysis_level == 'Documents':
                         doc_map = {doc.title: doc for doc in items_with_embeddings} # Use already filtered list
                         query_item_obj = doc_map.get(selected_key)
                         if query_item_obj: query_emb = query_item_obj.embedding
-                    elif analysis_level == 'Chunks':
+                    elif st.session_state.analysis_level == 'Chunks':
                          lookup = st.session_state.get('chunk_label_lookup_dict', {})
                          query_item_obj = lookup.get(selected_key)
                          if query_item_obj: query_emb = query_item_obj.embedding
@@ -1004,18 +1054,18 @@ else:
                     if query_emb is not None:
                         corpus_embeddings = None
                         corpus_labels = []
-                        if analysis_level == 'Documents':
+                        if st.session_state.analysis_level == 'Documents':
                             # Use the already prepared list/map
                              if items_with_embeddings:
                                 corpus_embeddings = np.array([d.embedding for d in items_with_embeddings])
                                 corpus_labels = [d.title for d in items_with_embeddings]
-                        elif analysis_level == 'Chunks':
+                        elif st.session_state.analysis_level == 'Chunks':
                             corpus_embeddings = st.session_state.get('all_chunk_embeddings_matrix')
                             corpus_labels = st.session_state.get('all_chunk_labels', [])
 
                         # Validate corpus before proceeding
                         if corpus_embeddings is None or not corpus_labels or corpus_embeddings.ndim != 2 or corpus_embeddings.shape[0] < 1:
-                             st.error(f"Invalid or empty corpus for {analysis_level} KNN search.")
+                             st.error(f"Invalid or empty corpus for {st.session_state.analysis_level} KNN search.")
                         else:
                              indices, scores = analysis_service.find_k_nearest(query_emb, corpus_embeddings, k=k_neighbors)
 
@@ -1040,7 +1090,7 @@ else:
                              else:
                                  st.write("No distinct neighbors found.")
                     else:
-                        st.error(f"Embedding not found for selected query {analysis_level[:-1]} ('{selected_key}').")
+                        st.error(f"Embedding not found for selected query {st.session_state.analysis_level[:-1]} ('{selected_key}').")
 
                 except Exception as e:
                     st.error(f"Error finding nearest neighbors: {e}")
@@ -1052,113 +1102,105 @@ st.header("Semantic Chunk Graph")
 
 chunk_matrix_graph = st.session_state.get('all_chunk_embeddings_matrix')
 chunk_labels_graph = st.session_state.get('all_chunk_labels')
-# analysis_service = load_analysis_service() # Assumed loaded
 
 if chunk_matrix_graph is None or not chunk_labels_graph:
     st.info("Generate embeddings for chunks first to build the semantic graph.")
-# elif not analysis_service: # This check might already be higher up
-#    st.error("Analysis Service not available.")
 else:
-    # --- Slider MUST be here, before the button ---
-    similarity_threshold = st.slider(
-        "Similarity Threshold for Graph Edges:",
-        min_value=0.1, max_value=1.0, value=0.7, step=0.05, key="graph_threshold"
+    graph_mode = st.radio(
+        "Graph Construction Mode:",
+        options=["Similarity Threshold", "Top-N Neighbors"],
+        index=0,
+        help="Choose how to construct the semantic graph: by threshold or by top-N neighbors per node."
     )
+    similarity_threshold = 0.7
+    n_neighbors = 3
+    if graph_mode == "Similarity Threshold":
+        st.markdown("""
+        **Similarity Threshold:**
+        
+        Use the slider below to control how similar two chunks must be to draw an edge between them in the semantic graph. 
+        - **Higher values** (e.g., 0.8+) show only the strongest, most meaningful connections.
+        - **Lower values** (e.g., 0.3-0.5) reveal weaker or more distant relationships, resulting in a denser graph.
+        
+        Adjust this to explore different levels of semantic connectivity in your data.
+        """)
+        similarity_threshold = st.slider(
+            "Similarity Threshold for Graph Edges:",
+            min_value=0.1, max_value=1.0, value=0.7, step=0.05, key="graph_threshold"
+        )
+    else:
+        st.markdown("""
+        **Top-N Neighbors:**
+        
+        For each chunk, connect it to its N most similar neighbors (excluding itself). This guarantees every node is connected, even if similarities are low.
+        """)
+        n_neighbors = st.number_input(
+            "Number of Neighbors (N):",
+            min_value=1, max_value=max(1, chunk_matrix_graph.shape[0] - 1), value=3, step=1, key="top_n_neighbors"
+        )
 
     if st.button("Show Semantic Graph", key="show_graph_button"):
-        st.write("DEBUG: 'Show Semantic Graph' button clicked.")
-
         labels = st.session_state.get('all_chunk_labels')
         embeddings = st.session_state.get('all_chunk_embeddings_matrix')
         lookup = st.session_state.get('chunk_label_lookup_dict', {})
         source_docs_for_graph = None
-
-        st.write(f"DEBUG: Initial labels: {'Exists' if labels else 'None'}, Embeddings: {'Exists' if embeddings is not None else 'None'}, Lookup: {'Exists' if lookup else 'None'}")
-
         if labels and embeddings is not None and lookup:
             try:
                 source_docs_for_graph = [lookup[label][1] for label in labels if label in lookup and isinstance(lookup[label], tuple) and len(lookup[label]) == 2]
-                st.write(f"DEBUG: Prepared source_docs_for_graph, length: {len(source_docs_for_graph) if source_docs_for_graph is not None else 'None'}")
                 if source_docs_for_graph is not None and len(source_docs_for_graph) != len(labels):
                     st.warning("Graph Coloring: Mismatch creating source_docs_for_graph. Some titles might be missing.")
             except Exception as e:
                 st.error(f"Error preparing source_docs_for_graph: {e}")
                 source_docs_for_graph = None
-
         labels_ok = labels and isinstance(labels, list) and len(labels) > 0
         embeddings_ok = embeddings is not None and isinstance(embeddings, np.ndarray) and embeddings.size > 0
         can_generate_graph = labels_ok and embeddings_ok and source_docs_for_graph is not None and len(source_docs_for_graph) == len(labels)
-
-        st.write(f"DEBUG: labels_ok: {labels_ok}, embeddings_ok: {embeddings_ok}, source_docs_ok: {source_docs_for_graph is not None and len(source_docs_for_graph) == len(labels)}, can_generate_graph: {can_generate_graph}")
-
         graph_data = None
         if can_generate_graph:
-            st.write("DEBUG: Condition `can_generate_graph` is TRUE. Entering spinner.")
-            with st.spinner(f"Generating graph with threshold {similarity_threshold}..."):
-                graph_data = analysis_service.create_semantic_graph(
-                    embeddings,
-                    labels,
-                    source_documents=source_docs_for_graph,
-                    similarity_threshold=similarity_threshold
-                )
-            st.write(f"DEBUG: analysis_service.create_semantic_graph returned: {'Data' if graph_data and graph_data[0] else 'None/Empty'}")
+            with st.spinner(f"Generating graph with mode: {graph_mode}..."):
+                if graph_mode == "Similarity Threshold":
+                    graph_data = analysis_service.create_semantic_graph(
+                        embeddings,
+                        labels,
+                        source_documents=source_docs_for_graph,
+                        similarity_threshold=similarity_threshold
+                    )
+                else:
+                    graph_data = analysis_service.create_top_n_neighbors_graph(
+                        embeddings,
+                        labels,
+                        source_documents=source_docs_for_graph,
+                        n_neighbors=n_neighbors
+                    )
         elif not (labels_ok and embeddings_ok):
              st.error("DEBUG CHECK: Missing core data for graph generation (embeddings or labels).")
         elif not source_docs_for_graph or (source_docs_for_graph and len(source_docs_for_graph) != len(labels)):
              st.error("DEBUG CHECK: Could not prepare source document information for graph coloring / length mismatch.")
-
-        # Initialize graph variables outside the unpacking if block for safety
         semantic_graph, graph_metrics, communities = None, {}, None
         node_degrees, node_betweenness = {}, {}
-
         if graph_data:
-            st.write("DEBUG: `graph_data` is not None. Unpacking...")
             if len(graph_data) == 3:
                  semantic_graph, graph_metrics, communities = graph_data
                  node_degrees = graph_metrics.get('degrees', {})
                  node_betweenness = graph_metrics.get('betweenness', {})
-                 st.write(f"DEBUG: Unpacked. semantic_graph: {'Exists' if semantic_graph else 'None'}, node_degrees: {'Exists' if node_degrees else 'None'}")
             else:
                  st.error("DEBUG: Graph generation service returned unexpected data format.")
-
         if semantic_graph:
-            st.write("DEBUG: `semantic_graph` exists. Proceeding to display.")
             if semantic_graph.number_of_nodes() > 0:
                 st.success(f"Generated graph with {semantic_graph.number_of_nodes()} nodes and {semantic_graph.number_of_edges()} edges.")
-                st.write("DEBUG POINT B.0: Entering graphviz prep try-block (using original semantic_graph).")
-
                 try:
                     if semantic_graph.number_of_nodes() < 150:
-                        st.write("DEBUG: Attempting st.graphviz_chart with ORIGINAL semantic_graph (with colors).")
-
-                        # Convert the original semantic_graph (which should have color attributes from service)
                         pydot_graph_original = nx.nx_pydot.to_pydot(semantic_graph)
-                        st.write("DEBUG: pydot_graph_original created via nx_pydot.")
-
                         pydot_graph_original.set_graph_defaults(overlap='scale', sep='+5', splines='true')
-                        pydot_graph_original.set_node_defaults(shape='ellipse', style='filled') # Ensure style=filled is set at default too
+                        pydot_graph_original.set_node_defaults(shape='ellipse', style='filled')
                         pydot_graph_original.set_prog('neato')
-                        st.write("DEBUG: pydot_graph_original defaults set.")
-
-                        # --- DOT DEBUG for the ORIGINAL graph ---
                         try:
                             dot_string_original = pydot_graph_original.to_string()
-                            st.subheader("Generated ORIGINAL DOT String (with color attempts):")
-                            st.code(dot_string_original, language='dot', line_numbers=True)
-                            st.write("DEBUG: Original DOT string displayed.")
-                        except Exception as dot_err:
-                            st.error(f"Could not generate ORIGINAL DOT string: {dot_err}")
-                        # --- END DOT DEBUG ---
-
-                        st.write("DEBUG: Attempting st.graphviz_chart with original graph...")
-                        try:
-                            st.graphviz_chart(pydot_graph_original.to_string()) # Use the original pydot graph
-                            st.success("Original graph (with color attributes) rendered via st.graphviz_chart!")
+                            st.graphviz_chart(dot_string_original)
+                            st.success("Original graph (with color attributes and edges) rendered via st.graphviz_chart!")
                         except Exception as graphviz_render_error:
                             st.error(f"ERROR during st.graphviz_chart with original graph: {graphviz_render_error}")
                             st.code(traceback.format_exc())
-                        st.write("DEBUG: After st.graphviz_chart attempt with original graph.")
-
                     else:
                          st.info(f"Graph too large ({semantic_graph.number_of_nodes()} nodes) for Graphviz.")
                 except ImportError:
@@ -1168,64 +1210,3 @@ else:
                 except Exception as viz_error:
                     st.error(f"Error rendering graph: {viz_error}")
                     st.code(traceback.format_exc())
-                
-                st.write("DEBUG POINT B: After Graphviz block attempt (using original graph).")
-
-# --- Display loaded documents details ---
-with st.expander("View Loaded Documents", expanded=False):
-    if st.session_state.documents:
-        for i, doc in enumerate(st.session_state.documents):
-            embed_status = "Yes" if doc.embedding is not None else "No"
-            st.markdown(f"**{i+1}. {doc.title}** - Doc Embedding: {embed_status}")
-
-            if hasattr(doc, 'chunks') and doc.chunks:
-                chunk_embed_counts = sum(1 for chunk in doc.chunks if chunk.embedding is not None)
-                st.markdown(f"    Chunks: {len(doc.chunks)} ({chunk_embed_counts} embedded)")
-            elif hasattr(doc, 'chunks'): # Chunking ran but yielded 0
-                 st.markdown("    Chunks: 0")
-            else: # Chunking not run
-                 st.markdown("    Chunks: Not Processed")
-            st.divider()
-    else:
-        st.write("No documents loaded.")
-
-# --- (Optional) Computational Matrices Info Expander ---
-with st.expander("View Computational Matrices Info", expanded=False):
-    # Check chunk matrix exists in session state and is not None
-    chunk_matrix = st.session_state.get('all_chunk_embeddings_matrix')
-    if chunk_matrix is not None:
-        st.write(f"**Chunk Embedding Matrix:**")
-        st.write(f"- Shape: {chunk_matrix.shape}")
-        st.write(f"- Number of Chunks: {len(st.session_state.get('all_chunk_labels', []))}")
-
-        if st.button("Compute & Show Similarity Matrix Info"):
-            if analysis_service:
-                sim_matrix = analysis_service.calculate_similarity_matrix(chunk_matrix)
-                if sim_matrix is not None:
-                    st.write(f"**Chunk Similarity Matrix:**")
-                    st.write(f"- Shape: {sim_matrix.shape}")
-                    # Display heatmap only if few chunks
-                    if sim_matrix.shape[0] > 0 and sim_matrix.shape[0] < 25:
-                         try:
-                              import plotly.express as px
-                              fig = px.imshow(sim_matrix, text_auto=".2f", aspect="auto",
-                                                labels=dict(x="Chunk Index", y="Chunk Index", color="Similarity"),
-                                                # Use short labels for heatmap axes if possible
-                                                # x=st.session_state.get('all_chunk_labels', []),
-                                                # y=st.session_state.get('all_chunk_labels', []),
-                                                title="Chunk Similarity Matrix Heatmap")
-                              fig.update_xaxes(side="top", tickangle=45)
-                              st.plotly_chart(fig)
-                         except ImportError:
-                              st.warning("Plotly Express not found. Cannot display heatmap.")
-                         except Exception as e:
-                              st.error(f"Failed to generate similarity heatmap: {e}")
-                    elif sim_matrix.shape[0] >= 25:
-                         st.info(f"Similarity matrix ({sim_matrix.shape[0]}x{sim_matrix.shape[0]}) too large for heatmap.")
-                    # else: matrix is empty, do nothing
-                else:
-                    st.error("Failed to compute similarity matrix.")
-            else:
-                st.error("Analysis Service not available.")
-    else:
-        st.info("Chunk embedding matrix not yet generated. Please generate embeddings.")

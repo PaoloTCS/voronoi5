@@ -291,3 +291,105 @@ class AnalysisService:
         print(f"Graph created: {G.number_of_nodes()} nodes, {G.number_of_edges()} edges (Counted: {edge_count}).")
         # Modify the return statement
         return G, graph_metrics, communities_list # Return graph, metrics dict, and list of communities 
+
+    def create_top_n_neighbors_graph(self,
+                                    embeddings_matrix: np.ndarray,
+                                    labels: List[str],
+                                    source_documents: List[str],
+                                    n_neighbors: int = 3,
+                                    similarity_matrix: Optional[np.ndarray] = None
+                                   ) -> Optional[Tuple[nx.Graph, Dict[str, Any], Optional[List[Set[str]]]]]:
+        """
+        Creates a NetworkX graph where each node is connected to its top N most similar neighbors (excluding self).
+        Nodes are labeled with the provided (potentially shortened) labels.
+
+        Args:
+            embeddings_matrix: A (n_items, embedding_dim) numpy array.
+            labels: A list of labels corresponding to the rows in embeddings_matrix.
+            source_documents: A list of source document identifiers corresponding to labels.
+            n_neighbors: Number of top neighbors to connect for each node.
+            similarity_matrix: (Optional) Pre-computed similarity matrix.
+
+        Returns:
+            A tuple containing the NetworkX graph, a dictionary of metrics (degrees, betweenness),
+            and a list of communities (list of sets of node labels), or (None, None, None).
+        """
+        if embeddings_matrix is None or embeddings_matrix.ndim != 2:
+            print("Error [create_top_n_neighbors_graph]: Invalid embeddings_matrix.")
+            return None, None, None
+        num_items = embeddings_matrix.shape[0]
+        if not isinstance(labels, list) or len(labels) != num_items:
+            print("Error [create_top_n_neighbors_graph]: Labels mismatch embeddings.")
+            return None, None, None
+        if num_items < 1:
+            print("Error [create_top_n_neighbors_graph]: Need at least one item.")
+            return None, None, None
+        if not isinstance(source_documents, list) or len(source_documents) != num_items:
+            print("Error [create_top_n_neighbors_graph]: Number of source documents must match embeddings.")
+            return None, None, None
+
+        if similarity_matrix is None:
+            similarity_matrix = self.calculate_similarity_matrix(embeddings_matrix)
+            if similarity_matrix is None:
+                print("Error [create_top_n_neighbors_graph]: Failed to compute similarity matrix.")
+                return None, None, None
+            if similarity_matrix.shape != (num_items, num_items):
+                print(f"Error [create_top_n_neighbors_graph]: Sim matrix shape mismatch.")
+                return None, None, None
+
+        # Create color map for documents
+        unique_docs = sorted(list(set(source_documents)))
+        num_docs = len(unique_docs)
+        doc_color_map = {}
+        try:
+            colormap_name = 'tab10' if num_docs <= 10 else ('tab20' if num_docs <= 20 else 'viridis')
+            colormap = cm.get_cmap(colormap_name, max(1, num_docs))
+            doc_color_map = {doc_title: mcolors.to_hex(colormap(i)) for i, doc_title in enumerate(unique_docs)}
+        except Exception as cmap_error:
+            print(f"Warning: Error creating colormap: {cmap_error}. Using default colors.")
+            doc_color_map = {doc_title: "#CCCCCC" for doc_title in unique_docs}
+
+        G = nx.Graph()
+        for i, label in enumerate(labels):
+            doc_title = source_documents[i]
+            node_color = doc_color_map.get(doc_title, "#CCCCCC")
+            try:
+                G.add_node(label, index=i, fillcolor=node_color, style='filled', fontcolor='black')
+            except Exception as node_add_error:
+                print(f"Error adding node {label}: {node_add_error}")
+                G.add_node(label, index=i)
+
+        # Add edges: for each node, connect to its top N most similar neighbors (excluding self)
+        for i in range(num_items):
+            similarities = similarity_matrix[i].copy()
+            similarities[i] = -np.inf  # Exclude self
+            top_indices = np.argsort(similarities)[-n_neighbors:]
+            for j in top_indices:
+                if j != i:
+                    score = float(similarity_matrix[i, j])
+                    G.add_edge(labels[i], labels[j], weight=round(score, 4), label=f"{score:.2f}", fontsize=8)
+
+        degrees = dict(G.degree())
+        try:
+            betweenness = nx.betweenness_centrality(G, normalized=True, endpoints=False)
+        except Exception as e:
+            print(f"Error calculating betweenness centrality: {e}")
+            betweenness = {}
+
+        graph_metrics = {
+            'degrees': degrees,
+            'betweenness': betweenness
+        }
+
+        communities_list = []
+        try:
+            detected_communities_sets = nx.community.louvain_communities(G, weight=None, seed=42)
+            communities_list = [set(community_fset) for community_fset in detected_communities_sets]
+        except ImportError:
+            print("Warning: Community detection may require 'python-louvain'. Please ensure it's installed (`pip install python-louvain`). Skipping community detection.")
+            communities_list = None
+        except Exception as e:
+            print(f"Error during community detection: {e}")
+            communities_list = None
+
+        return G, graph_metrics, communities_list 
