@@ -1,80 +1,58 @@
-# Voronoi4: Enhanced Semantic Voronoi Tessellation Explorer
+# Voronoi6: Semantic Knowledge Explorer
 
-Voronoi4 is an enhanced version of the Semantic Voronoi Tessellation Explorer, building on the foundation of Voronoi3. This application creates interactive visualizations of knowledge domains based on semantic relationships.
+**Live Demo:** [voronoi6-eupbzd4aanxptzehyeykkz.streamlit.app](https://voronoi6-eupbzd4aanxptzehyeykkz.streamlit.app)
 
-## Features
+Voronoi6 is an interactive Streamlit app for exploring the semantic structure of your documents. It uses advanced embedding, clustering, and graph techniques to reveal hidden relationships and conceptual clusters in your information.
 
-- Interactive Voronoi diagram for visualizing knowledge domains
-- Document management with semantic analysis
-- Question answering based on uploaded documents
-- Nested hierarchies of domains and subdomains
-- Semantic relationship visualization between domains
-- Enhanced document processing and analysis
-- Improved vector embedding and retrieval
-- Better CORS configuration
-- Streamlined user interface
+## Key Features
 
-## Getting Started
+- **Pairwise Similarity Matrix:**
+  - Instantly view a table of all pairwise similarities between your documents or chunks.
+  - Identify the most and least similar items at a glance.
 
-### Prerequisites
-- Node.js (v18 or higher)
-- npm
-- OpenAI API key
-- Pinecone account and API key
+- **Semantic Graph Visualization:**
+  - Visualize your data as a semantic graph, with nodes colored by source document.
+  - Two graph construction modes:
+    - **Similarity Threshold:** Only show edges above a user-chosen similarity value.
+    - **Top-N Neighbors:** For each node, always connect to its N most similar neighbors, ensuring a connected and informative graph.
 
-### Installation
+- **Flexible Analysis Levels:**
+  - Switch between document-level and chunk-level analysis for both visualizations and graphs.
 
-1. Clone the repository:
-   ```
-   git clone https://github.com/yourusername/voronoi4.git
-   cd voronoi4
-   ```
+- **Modern, User-Friendly UI:**
+  - Clean layout, clear instructions, and interactive controls for deep exploration.
 
-2. Install dependencies:
-   ```
-   npm install
-   ```
+## Usage Instructions
 
-3. Set up environment variables:
-   - Create `.env.local` in the frontend directory
-   - Create `.env` in the backend directory
-   - Add your API keys and configuration
+1. **Upload Documents:**
+   - Use the sidebar to upload TXT or PDF files.
+   - Click "Process Uploaded Files" to add them to your workspace.
 
-4. Start the application:
-   1. - ~/VerbumTechnologies/Voronoi3/backend% npm run dev 
-   2. -~/VerbumTechnologies/Voronoi3/frontend% npm start  
-   3. -----  Command is : streamlit run ui/app.py
-   
-## Usage
+2. **Process and Analyze:**
+   - Click "Chunk Loaded Documents" to segment your documents.
+   - Click "Generate Embeddings" to compute semantic representations.
 
-1. Begin by entering at least 3 domains/interests on the splash page
-2. Navigate the Voronoi diagram by clicking on domains
-3. Add subdomains to create hierarchical relationships
-4. Upload documents to analyze within your domain context
-5. Ask questions about your documents to get AI-powered answers
+3. **Explore:**
+   - View the similarity matrix to understand relationships.
+   - Use the "Semantic Chunk Graph" section to visualize connections:
+     - Choose between threshold or top-N neighbor graph modes.
+     - Adjust parameters and render the graph interactively.
 
-## Architecture
+## Roadmap & Future Directions
 
-- Frontend: React.js
-- Backend: Node.js with Express
-- Vector Database: Pinecone
-- Embeddings & AI: OpenAI
+- **Dataset Ingestion:**
+  - While Voronoi6 currently operates on Document objects, future versions will support direct ingestion and analysis of datasets (e.g., CSV, DataFrames, tabular data).
+  - This will enable semantic graphing and clustering for structured data, not just text.
 
-## Improvements in Voronoi4
+- **Advanced Analytics:**
+  - Planned features include semantic drift detection, knowledge ecosystem management, and more.
 
-- Enhanced document processing with better error handling
-- More robust vector embedding and retrieval system
-- Improved CORS configuration for better security
-- Streamlined user interface with better UX
-- Better performance optimization
-- Enhanced error handling and logging
-- Improved documentation
+## Development & Contributions
 
-## License.
-None
-Copyright © Litchfield Capital Corporation. All rights reserved.
-This repository is proprietary, and no license is granted to copy, modify, or distribute its contents.
+- This project is under active development. Feedback and contributions are welcome!
+- To run locally, see `requirements.txt` for dependencies.
 
+## License
 
-Remote streamlit app at: https://voronoi5-lgqsjrugjmp2xq3zjkfrbk.streamlit.app/
+MIT License (see LICENSE file)
 
