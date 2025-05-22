@@ -20,54 +20,58 @@ class KnowledgeGraphService:
         Returns a sorted list of labels of neighbors for a given source node.
         Needed for canonical prime assignment.
         """
-        if source_node_label not in self.graph.graph: # Check NetworkX graph
+        if not self.graph or not self.graph.graph or source_node_label not in self.graph.graph:
             return []
-        
-        neighbor_labels = sorted(list(self.graph.graph.neighbors(source_node_label)))
-        return neighbor_labels
+        try:
+            neighbor_labels = sorted(list(self.graph.graph.neighbors(source_node_label)))
+            return neighbor_labels
+        except Exception as e:
+            print(f"Error getting sorted neighbors for {source_node_label}: {e}")
+            return []
 
     def get_canonical_edge_prime(self, source_node_label: str, target_node_label: str) -> Optional[gmpy2.mpz]:
         """
         Gets the canonical prime number for an edge based on a stable ordering.
         Strategy: Sort target node labels alphabetically/numerically from source.
         """
+        from services.path_encoding_service import get_nth_prime_gmpy
         neighbor_labels = self.get_sorted_neighbor_labels(source_node_label)
+        if not neighbor_labels:
+            print(f"Warning: Node {source_node_label} has no neighbors or does not exist in graph.")
+            return None
         if target_node_label not in neighbor_labels:
             print(f"Warning: Target {target_node_label} not a neighbor of {source_node_label}.")
             return None
-        
         try:
-            # 1-based index for prime selection
             prime_order_index = neighbor_labels.index(target_node_label) + 1
-            # Use the global prime helper from path_encoding_service
-            # This requires path_encoding_service to be importable or primes accessible
-            # For now, let'''s assume it is.
-            from services.path_encoding_service import get_nth_prime_gmpy # Direct import for now
             return get_nth_prime_gmpy(prime_order_index)
-        except ValueError: # Should not happen if target_node_label in neighbor_labels
-            print(f"Error finding index for target {target_node_label}.")
+        except ValueError:
+            print(f"Error: Target {target_node_label} was in neighbor_labels but index failed (should not happen).")
             return None
         except Exception as e:
-            print(f"Error getting canonical edge prime: {e}")
+            print(f"Error getting canonical edge prime for ({source_node_label} -> {target_node_label}): {e}")
             return None
 
     def find_path(self, start_node_label: str, end_node_label: str) -> Optional[List[str]]:
-        """Finds a path (list of node labels) between two nodes."""
-        # TODO: Implement BFS/DFS or more advanced pathfinding
-        print(f"Placeholder: Finding path from {start_node_label} to {end_node_label}.")
-        # Example using NetworkX for simple path (if graph is populated)
-        if self.graph.graph and start_node_label in self.graph.graph and end_node_label in self.graph.graph:
-            try:
-                import networkx as nx
-                path_nodes = nx.shortest_path(self.graph.graph, source=start_node_label, target=end_node_label)
-                return path_nodes
-            except nx.NetworkXNoPath:
-                print("No path found.")
-                return None
-            except Exception as e:
-                print(f"Error finding path with nx: {e}")
-                return None
-        return None
+        """
+        Finds a path (list of node labels) between two nodes using BFS (NetworkX shortest_path).
+        """
+        if not self.graph or not self.graph.graph:
+            print("Error: Graph not initialized in KnowledgeGraphService.")
+            return None
+        if start_node_label not in self.graph.graph or end_node_label not in self.graph.graph:
+            print(f"Error: Start ({start_node_label}) or End ({end_node_label}) node not in graph.")
+            return None
+        try:
+            import networkx as nx
+            path_nodes = nx.shortest_path(self.graph.graph, source=start_node_label, target=end_node_label)
+            return path_nodes
+        except nx.NetworkXNoPath:
+            print(f"No path found between {start_node_label} and {end_node_label}.")
+            return None
+        except Exception as e:
+            print(f"Error finding path between {start_node_label} and {end_node_label}: {e}")
+            return None
 
     # Placeholder for SuperToken logic
     def register_super_token_for_path(self, path_node_labels: List[str], claim: str):

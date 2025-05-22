@@ -451,26 +451,116 @@ if st.sidebar.button("Generate Embeddings", disabled=not embedding_service or no
     else:
         st.sidebar.warning("No documents loaded to generate embeddings for.")
 
-# --- Path Encoding Test Section (Placeholder) ---
+# --- Path Encoding Test Section (Interactive) ---
 st.sidebar.header("Path Encoding (Phase 3 Dev)")
-if path_encoding_service and knowledge_graph_service: # Check if services loaded
-    if st.sidebar.button("Test Path Encoding", disabled=True): # Button is now disabled
-        dummy_edge_primes_int = [2, 3, 5, 7, 11] # Primes for 5 edges
-        dummy_edge_primes_gmpy = [gmpy2.mpz(p) for p in dummy_edge_primes_int]
-        st.sidebar.write(f"Encoding primes: {dummy_edge_primes_gmpy}")
-        encoded_path_data = path_encoding_service.encode_path(dummy_edge_primes_gmpy)
-        if encoded_path_data:
-            code_c, depth_d = encoded_path_data
-            st.sidebar.write(f"Encoded Path: C = {code_c}, d = {depth_d}")
-            decoded_primes = path_encoding_service.decode_path(code_c, depth_d)
-            st.sidebar.write(f"Decoded Primes: {decoded_primes}")
-            if decoded_primes == dummy_edge_primes_gmpy:
-                st.sidebar.success("Encode/Decode Test Passed!")
-            else:
-                st.sidebar.error("Encode/Decode Test Failed!")
+
+# Ensure services and graph data are available
+if path_encoding_service and knowledge_graph_service and \
+   st.session_state.get('all_chunk_labels') and \
+   knowledge_graph_service.graph and knowledge_graph_service.graph.graph.number_of_nodes() > 0:
+
+    node_options = sorted(list(knowledge_graph_service.graph.graph.nodes())) # Get nodes from the actual graph
+
+    # --- Helper to format node label for display ---
+    def format_node_label(node_label):
+        # Example: "test_doc_A.txt::C1(Semantic Seg..." → "A.txt | C1 | Semantic Seg..."
+        parts = node_label.split("::")
+        doc = parts[0]
+        doc_short = doc[-10:] if len(doc) > 10 else doc
+        chunk = parts[1] if len(parts) > 1 else ""
+        # Try to split chunk into chunk number and context
+        if '(' in chunk and ')' in chunk:
+            chunk_num = chunk.split('(')[0]
+            context = chunk.split('(')[1].rstrip(')')
         else:
-            st.sidebar.error("Path encoding failed.")
-    st.sidebar.caption("Path encoding test temporarily disabled.")
+            chunk_num = chunk
+            context = ""
+        return f"{doc_short} | {chunk_num.strip()} | {context.strip()}"
+
+    node_display_map = {format_node_label(n): n for n in node_options}
+    display_options = list(node_display_map.keys())
+
+    if len(display_options) < 2:
+        st.sidebar.info("Graph needs at least 2 nodes to find a path.")
+    else:
+        start_display = st.sidebar.selectbox(
+            "Select Start Node for Path:",
+            display_options,
+            index=0,
+            key="path_start_node"
+        )
+        end_display = st.sidebar.selectbox(
+            "Select End Node for Path:",
+            display_options,
+            index=min(1, len(display_options)-1),
+            key="path_end_node"
+        )
+
+        # Show full node label as caption for clarity
+        st.sidebar.caption(f"Start Node: {node_display_map[start_display]}")
+        st.sidebar.caption(f"End Node: {node_display_map[end_display]}")
+
+        start_node = node_display_map[start_display]
+        end_node = node_display_map[end_display]
+
+        if st.sidebar.button("Encode Selected Path"):
+            if start_node == end_node:
+                st.sidebar.error("Start and end nodes must be different.")
+            else:
+                st.sidebar.write(f"Finding path from '{start_node}' to '{end_node}'...")
+                path_node_labels = knowledge_graph_service.find_path(start_node, end_node)
+
+                if path_node_labels:
+                    st.sidebar.write(f"Path Found: {' -> '.join(path_node_labels)}")
+                    if len(path_node_labels) < 2:
+                        st.sidebar.warning("Path is too short to have edges to encode.")
+                    else:
+                        edge_prime_ids_gmpy = []
+                        path_edges_details = [] # For display
+
+                        for i in range(len(path_node_labels) - 1):
+                            u = path_node_labels[i]
+                            v = path_node_labels[i+1]
+                            prime = knowledge_graph_service.get_canonical_edge_prime(u,v)
+                            if prime:
+                                edge_prime_ids_gmpy.append(prime)
+                                path_edges_details.append(f"Edge ({u} -> {v}): Prime {prime}")
+                            else:
+                                st.sidebar.error(f"Could not get prime for edge ({u} -> {v}). Aborting encoding.")
+                                edge_prime_ids_gmpy = [] # Clear list to prevent encoding
+                                break
+                        
+                        if edge_prime_ids_gmpy:
+                            st.sidebar.write("**Edge Primes:**")
+                            for detail in path_edges_details:
+                                st.sidebar.caption(detail)
+                            
+                            st.sidebar.write(f"Encoding gmpy primes: {edge_prime_ids_gmpy}")
+                            encoded_path_data = path_encoding_service.encode_path(edge_prime_ids_gmpy)
+
+                            if encoded_path_data:
+                                code_c, depth_d = encoded_path_data
+                                st.sidebar.write(f"**Encoded Path:**")
+                                st.sidebar.markdown(f"    C = `{code_c}`")
+                                st.sidebar.markdown(f"    d = `{depth_d}`")
+
+                                decoded_primes = path_encoding_service.decode_path(code_c, depth_d)
+                                st.sidebar.write(f"**Decoded Primes:** `{decoded_primes}`")
+
+                                if decoded_primes and all(p_orig == p_dec for p_orig, p_dec in zip(edge_prime_ids_gmpy, decoded_primes)) and len(decoded_primes) == len(edge_prime_ids_gmpy):
+                                    st.sidebar.success("Encode/Decode Test Passed for selected path!")
+                                else:
+                                    st.sidebar.error("Encode/Decode Test Failed for selected path.")
+                            else:
+                                st.sidebar.error("Path encoding failed.")
+                else:
+                    st.sidebar.warning(f"No path found between '{start_node}' and '{end_node}'.")
+else:
+    st.sidebar.info("Generate a graph with chunks first to test path encoding.")
+
+# --- Always show a Refresh button for Path Encoding UI ---
+if st.sidebar.button("Refresh Path Encoding UI"):
+    st.rerun()
 
 # --- Main Area Logic ---
 st.markdown("""
@@ -1183,6 +1273,15 @@ else:
                  semantic_graph, graph_metrics, communities = graph_data
                  node_degrees = graph_metrics.get('degrees', {})
                  node_betweenness = graph_metrics.get('betweenness', {})
+                 # --- UPDATE SESSION STATE KNOWLEDGE GRAPH INSTANCE ---
+                 if semantic_graph is not None:
+                     if 'knowledge_graph_instance' in st.session_state and st.session_state.knowledge_graph_instance is not None:
+                         st.session_state.knowledge_graph_instance.graph = semantic_graph # Assign the nx.Graph
+                         st.session_state.knowledge_graph_instance.nodes = {} # Clear old model nodes
+                         st.session_state.knowledge_graph_instance.edges = {} # Clear old model edges
+                         st.write("DEBUG: Updated knowledge_graph_instance in session state.")
+                     else:
+                         st.warning("DEBUG: knowledge_graph_instance not found in session state to update.")
             else:
                  st.error("DEBUG: Graph generation service returned unexpected data format.")
         if semantic_graph:
