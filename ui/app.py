@@ -531,21 +531,21 @@ if path_encoding_service and knowledge_graph_service and \
                                 break
                         
                         if edge_prime_ids_gmpy:
-                            st.sidebar.write("**Edge Primes:**")
+                            st.sidebar.write("**Edge Primes (as exponents for Gödel encoding):**")
                             for detail in path_edges_details:
                                 st.sidebar.caption(detail)
                             
-                            st.sidebar.write(f"Encoding gmpy primes: {edge_prime_ids_gmpy}")
+                            st.sidebar.write(f"Encoding gmpy primes (as exponents): {edge_prime_ids_gmpy}")
                             encoded_path_data = path_encoding_service.encode_path(edge_prime_ids_gmpy)
 
                             if encoded_path_data:
                                 code_c, depth_d = encoded_path_data
-                                st.sidebar.write(f"**Encoded Path:**")
+                                st.sidebar.write(f"**Encoded Path (Gödel-style):**")
                                 st.sidebar.markdown(f"    C = `{code_c}`")
                                 st.sidebar.markdown(f"    d = `{depth_d}`")
 
                                 decoded_primes = path_encoding_service.decode_path(code_c, depth_d)
-                                st.sidebar.write(f"**Decoded Primes:** `{decoded_primes}`")
+                                st.sidebar.write(f"**Decoded Primes (exponents):** `{decoded_primes}`")
 
                                 if decoded_primes and all(p_orig == p_dec for p_orig, p_dec in zip(edge_prime_ids_gmpy, decoded_primes)) and len(decoded_primes) == len(edge_prime_ids_gmpy):
                                     st.sidebar.success("Encode/Decode Test Passed for selected path!")
@@ -554,7 +554,39 @@ if path_encoding_service and knowledge_graph_service and \
                             else:
                                 st.sidebar.error("Path encoding failed.")
                 else:
+                    # Enhanced feedback when no path is found
+                    start_degree = knowledge_graph_service.get_node_degree(start_node)
+                    end_degree = knowledge_graph_service.get_node_degree(end_node)
                     st.sidebar.warning(f"No path found between '{start_node}' and '{end_node}'.")
+                    st.sidebar.info(f"Start node degree: {start_degree}\nEnd node degree: {end_degree}")
+                    if start_degree == 0 and end_degree == 0:
+                        st.sidebar.error("Both selected nodes are isolated (no connections in the current graph). Try lowering the similarity threshold or increasing the number of neighbors.")
+                    elif start_degree == 0:
+                        st.sidebar.error("The start node is isolated (no connections in the current graph). Try lowering the similarity threshold or increasing the number of neighbors.")
+                    elif end_degree == 0:
+                        st.sidebar.error("The end node is isolated (no connections in the current graph). Try lowering the similarity threshold or increasing the number of neighbors.")
+                    else:
+                        st.sidebar.info("The selected nodes are in different disconnected components. Try lowering the similarity threshold, increasing the number of neighbors, or selecting different nodes.")
+                        # --- New: Show reachable nodes from start node ---
+                        try:
+                            component_nodes = list(nx.node_connected_component(knowledge_graph_service.graph.graph, start_node))
+                            component_size = len(component_nodes)
+                            # Format for display (limit to 10 for brevity)
+                            formatted_nodes = [format_node_label(n) for n in component_nodes if n != start_node]
+                            max_display = 10
+                            st.sidebar.markdown(f"**Nodes reachable from your selected start node:**")
+                            if formatted_nodes:
+                                for n in formatted_nodes[:max_display]:
+                                    st.sidebar.caption(f"- {n}")
+                                if len(formatted_nodes) > max_display:
+                                    st.sidebar.caption(f"...and {len(formatted_nodes) - max_display} more.")
+                            else:
+                                st.sidebar.caption("(No other nodes reachable from this node.)")
+                            st.sidebar.info(f"Total nodes in this connected component: {component_size}")
+                            if end_node not in component_nodes:
+                                st.sidebar.warning("End node is not in the same connected component as the start node.")
+                        except Exception as e:
+                            st.sidebar.error(f"Error analyzing connected component: {e}")
 else:
     st.sidebar.info("Generate a graph with chunks first to test path encoding.")
 

@@ -79,4 +79,18 @@ class KnowledgeGraphService:
         # 1. Get edge primes for the path
         # 2. Encode path
         # 3. Create and store SuperToken
-        pass 
+        pass
+
+    def get_node_degree(self, node_label: str) -> int:
+        """
+        Returns the degree (number of connections) of the given node label in the graph.
+        """
+        if not self.graph or not self.graph.graph:
+            return 0
+        if node_label not in self.graph.graph:
+            return 0
+        try:
+            return self.graph.graph.degree[node_label]
+        except Exception as e:
+            print(f"Error getting degree for node {node_label}: {e}")
+            return 0 

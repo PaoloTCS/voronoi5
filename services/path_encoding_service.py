@@ -131,141 +131,91 @@ class PathEncodingService:
             res = gmpy2.mul(res, num)
         return res
 
-    def encode_path(self, edge_prime_ids: List[gmpy2.mpz]) -> Optional[Tuple[gmpy2.mpz, int]]:
+    def encode_path(self, edge_atomic_primes: List[gmpy2.mpz]) -> Optional[Tuple[gmpy2.mpz, int]]:
         """
-        Encodes a path represented by a list of canonical prime IDs for its edges.
-
-        Args:
-            edge_prime_ids: List of gmpy2.mpz prime numbers representing edges.
-
-        Returns:
-            A tuple (C, d) where C is the final encoded BigInt and d is the depth of encoding,
-            or None if encoding fails.
+        Encodes an ordered path using Gödel-style encoding: C = P_1^e1 * P_2^e2 * ...
+        where P_j is the j-th prime number (2,3,5...) and e_i is the small prime for the i-th edge.
         """
-        if not edge_prime_ids:
+        if not edge_atomic_primes:
             print("Warning: Cannot encode an empty path.")
             return None
 
-        current_code = self._product_gmpy(edge_prime_ids)
-        current_depth = 0
+        # Ensure we have enough base primes (2, 3, 5, ...) for the Gödel encoding
+        num_edges = len(edge_atomic_primes)
+        _ensure_primes_up_to_n(num_edges) # Ensures _PRIMES_LIST_GMPY has at least P_1 to P_num_edges
 
-        # Iterative lifting if code exceeds limits or for fixed depth based on block size
-        # For now, a simple single lift if needed based on depth_limit,
-        # or more accurately, if the product itself becomes an index too large for get_nth_prime_gmpy'''s cache quickly.
-        # The framework paper implies multiple lifts based on block size, which is more complex.
-        # Let'''s start with a version that performs lifts until C is "manageable" or depth_limit is hit.
-        # True block-based lifting requires segmenting edge_prime_ids or products.
+        if num_edges > len(_PRIMES_LIST_GMPY):
+            print(f"Error: Not enough base primes in cache for {num_edges} edges.")
+            return None # Should be caught by _ensure_primes_up_to_n ideally
 
-        # Simplified: if depth_limit > 0, we lift once if there'''s more than one prime.
-        # This isn'''t the full recursive block encoding from the paper yet.
-        # It'''s a step towards it.
-
-        # Let'''s implement one level of lifting for now if there are multiple primes
-        if len(edge_prime_ids) > 1 and self.depth_limit > 0 : # Only lift if multiple primes and depth allows
-             try:
-                  # The "code" (product of primes) becomes the index for the next prime
-                  # This requires prime_index(product) to be a valid integer index
-                  # and then get_nth_prime(that_index). This is P(m) = p_m
-                  # But the product itself is '''m'''. We need the product'''s index IF it were prime.
-                  # The paper states: P(m) = p_m where p_m is the m-th prime.
-                  # So, current_code IS '''m'''. We need the m-th prime.
-                  
-                  # We need to ensure current_code doesn'''t become astronomically large such that
-                  # get_nth_prime_gmpy(current_code) would be infeasible.
-                  # The paper'''s "block" concept is designed to manage this by lifting products of smaller blocks.
-
-                  # Simplified approach for now (closer to a single lift of the product):
-                  # Convert the product to an integer to use as an index.
-                  # This is risky if current_code is massive.
-                  # The framework'''s "m-th prime" means current_code itself *is* m.
-                  m_index = int(current_code) # This can fail if current_code is too large for standard int
-                  if m_index > 10**7: # Arbitrary limit to prevent extremely slow get_nth_prime
-                       print(f"Warning: Product {current_code} too large for direct m-th prime lookup. Path encoding may be too complex for simple lift.")
-                       # In a full implementation, we'''d apply block-based lifting BEFORE this.
-                       # For now, return the unlifted code if too large for m-th prime.
-                       return current_code, current_depth
-                  
-                  lifted_code = get_nth_prime_gmpy(m_index)
-                  current_code = lifted_code
-                  current_depth = 1 # Mark that one lift occurred
-             except OverflowError:
-                  print(f"OverflowError: Product {current_code} too large to convert to int for m-th prime. Returning unlifted code.")
-                  return current_code, 0 # Return original product and depth 0
-             except ValueError as ve: # From get_nth_prime_gmpy if index is bad
-                  print(f"ValueError during lifting: {ve}. Product was {current_code}. Returning unlifted.")
-                  return self._product_gmpy(edge_prime_ids), 0
-
-
-        # For a full block-based recursive encoding as per the paper:
-        # TODO: Implement recursive block processing and lifting here.
-        # This involves:
-        # 1. Splitting edge_prime_ids into blocks of self.block_size.
-        # 2. Calculating product for each block.
-        # 3. If number of block-products > 1, recursively call encode_path on these products (as new edge_prime_ids).
-        # 4. Increment current_depth at each level of recursion.
-        # 5. Stop when only one code remains or depth_limit is reached.
-
-        return current_code, current_depth
-
-    def decode_path(self, code: gmpy2.mpz, depth: int) -> Optional[List[gmpy2.mpz]]:
-        """
-        Decodes a path code (C, d) back into a list of edge prime IDs.
-
-        Args:
-            code: The encoded BigInt C.
-            depth: The depth d of encoding.
-
-        Returns:
-            A list of gmpy2.mpz prime numbers representing the edges, or None if decoding fails.
-        """
-        if depth < 0:
-            print("Error: Depth cannot be negative.")
-            return None
-
-        current_decoded_primes = [code] # Start with the code itself
-
-        # Iteratively unlift based on depth
-        # This simplified version assumes single lift. True unlifting needs to match block structure.
-        for _ in range(depth):
-            if len(current_decoded_primes) != 1:
-                print("Error: Expected single code for unlifting at this depth.")
+        encoded_c = gmpy2.mpz(1)
+        for i, edge_prime_exponent in enumerate(edge_atomic_primes):
+            base_prime = _PRIMES_LIST_GMPY[i] # P_(i+1) because list is 0-indexed
+            try:
+                # Ensure exponent is a Python int for gmpy2.pow() if it expects that,
+                # though gmpy2.mpz should also work. Let's cast to be safe.
+                exponent_val = int(edge_prime_exponent)
+                term = gmpy2.pow(base_prime, exponent_val)
+                encoded_c = gmpy2.mul(encoded_c, term)
+            except OverflowError:
+                print(f"OverflowError: Exponent {edge_prime_exponent} too large for base {base_prime}.")
                 return None
-            
-            code_to_unlift = current_decoded_primes[0]
-            
-            # Unlift: code_to_unlift is the p_m. We need '''m''', which is its prime_index.
-            # Then, '''m''' is the product of primes from the lower level.
-            m_index = prime_index_gmpy(code_to_unlift)
-            if m_index is None:
-                print(f"Error: Could not find prime index for {code_to_unlift} during unlifting.")
-                return None
-            
-            # '''m_index''' is now the product from the previous level. Factorize it.
-            # The paper uses '''m''' as the product.
-            # P(m) = p_m --> code_to_unlift is p_m.
-            # So, the index of p_m is m.
-            # The value '''m''' (the index) is the product we need to factorize.
-            product_from_lower_level = gmpy2.mpz(m_index) # The index *is* the product
-            current_decoded_primes = prime_factors_gmpy(product_from_lower_level)
-            
-            if not current_decoded_primes: # Factoring failed or resulted in no primes
-                print(f"Error: Factoring {product_from_lower_level} yielded no primes.")
+            except Exception as e:
+                print(f"Error during encoding term {i+1} (base {base_prime}, exp {edge_prime_exponent}): {e}")
                 return None
         
-        # For a full block-based recursive decoding:
-        # TODO: Implement recursive unlifting and unblocking here.
-        # This involves:
-        # 1. If depth > 0, get prime_index of '''code''' to get the product from level d-1.
-        # 2. Factorize this product to get the codes from level d-1.
-        # 3. Recursively call decode_path on these codes with depth-1.
-        # 4. Concatenate results.
-        # 5. If depth == 0, '''code''' is already a product of edge primes, so factorize it.
+        current_depth = 0 # No lifting of the final Gödel number C itself yet
+        # TODO: Implement optional lifting of 'encoded_c' based on self.depth_limit
+        #       and self.block_size if 'encoded_c' itself is considered for further compression.
 
-        # If depth is 0, the current_decoded_primes should be the list of actual edge primes
-        # (if the initial code was a product, and not a single prime itself).
-        # If depth is 0 and the code was a single prime, factorizing it will return itself.
-        if depth == 0:
-             # The code is the product of primes. Factorize it.
-             return prime_factors_gmpy(code)
+        return encoded_c, current_depth
 
-        return current_decoded_primes 
+    def decode_path(self, code_c: gmpy2.mpz, depth: int) -> Optional[List[gmpy2.mpz]]:
+        """
+        Decodes a Gödel-style path code C back into a list of its edge atomic primes [e1, e2, ...].
+        Assumes depth=0 for now (no lifting of C itself).
+        """
+        if depth != 0:
+            # TODO: Implement unlifting of C if depth > 0
+            print("Warning: Multi-depth decoding not yet implemented. Assuming depth 0.")
+            # For now, proceed as if C is the base Gödel number
+
+        if code_c < 2: # Smallest Gödel number is 2^e1
+            print("Error: Invalid code for decoding (must be >= 2).")
+            return None
+
+        decoded_edge_primes = []
+        temp_code = gmpy2.mpz(code_c)
+        prime_idx_for_base = 0 # To get P_1 (2), P_2 (3), ...
+
+        while temp_code > 1:
+            prime_idx_for_base += 1
+            # Ensure we have the base prime (P_j) in our cache
+            # Max number of edges is practically limited, so this should be okay
+            _ensure_primes_up_to_n(prime_idx_for_base) 
+            if prime_idx_for_base > len(_PRIMES_LIST_GMPY):
+                print(f"Error: Ran out of base primes during decoding. Code {code_c} might be too complex or corrupted.")
+                return None # Or partial list
+            
+            current_base_prime = _PRIMES_LIST_GMPY[prime_idx_for_base - 1] # Get P_j
+
+            if temp_code % current_base_prime == 0:
+                count, remainder = gmpy2.remove(temp_code, current_base_prime)
+                # 'count' is the exponent e_j, which is the atomic prime for that edge
+                decoded_edge_primes.append(gmpy2.mpz(count))
+                temp_code = remainder
+                if remainder == 0: # Should not happen if temp_code was > 1
+                    print("Error: Decoding resulted in zero remainder unexpectedly.")
+                    return None
+            else:
+                # This base prime is not a factor, means its exponent was 0,
+                # implying the path was shorter than the current prime_idx_for_base.
+                # This assumes all exponents e_i are > 0. If e_i can be 0, logic needs adjustment.
+                # For now, if a base prime isn't a factor, we assume end of sequence.
+                break 
+        
+        if temp_code > 1:
+            print(f"Warning: Decoding finished with remainder {temp_code}. Code might be corrupted or involve primes beyond cache for bases.")
+            return None # Indicates incomplete or failed decoding
+
+        return decoded_edge_primes 

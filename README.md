@@ -52,7 +52,7 @@ Voronoi6 is an interactive Streamlit app for exploring the semantic structure of
 - This project is under active development. Feedback and contributions are welcome!
 - To run locally, see `requirements.txt` for dependencies.
 
-## License
+## No License
 
-MIT License (see LICENSE file)
+
 
