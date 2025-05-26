@@ -1,0 +1,8 @@
+product_id,reviewer_name,review_date,review_title,review_text,rating
+P1001,Alice,2023-01-15,Great product!,This is one of the best items I have ever purchased. Highly recommended.,5
+P1002,Bob,2023-01-20,Okay item,It works as expected but nothing special. Build quality could be better.,3
+P1001,Charlie,2023-02-10,Loved it!,Absolutely loved this product. Will buy again for sure.,5
+P1003,David,2023-02-12,Not what I expected,The description was misleading. I am returning this item.,2
+P1002,Eve,2023-03-01,Decent for the price,Good value for money, though it has some minor flaws.,4
+P1004,Frank,2023-03-05,Excellent quality,Very impressed with the craftsmanship and performance.,5
+P1001,Grace,2023-03-10,Could be improved,I like the concept but the execution needs some work.,3

@@ -81,14 +81,14 @@ def load_knowledge_graph_service():
     # If KGService manages THE graph, it should be in session_state
     # For now, let's assume it can be cached if it operates on a passed graph
     if 'knowledge_graph_instance' not in st.session_state:
-         st.session_state.knowledge_graph_instance = KnowledgeGraph(name="MainKG_App")
+         st.session_state['knowledge_graph_instance'] = KnowledgeGraph(name="MainKG_App") # Changed to key access
     # If KGService is stateless and operates on passed graph:
     # return KnowledgeGraphService()
     # If KGService manages its own graph instance:
-    return KnowledgeGraphService(knowledge_graph=st.session_state.knowledge_graph_instance)
+    return KnowledgeGraphService(knowledge_graph=st.session_state['knowledge_graph_instance']) # Changed to key access
 
-embedding_service = load_embedding_service()
-analysis_service = load_analysis_service()
+embedding_service = load_embedding_service() # These are called at global scope.
+analysis_service = load_analysis_service()  # This was identified as problematic for testing.
 visualization_service = load_visualization_service()
 chunker = load_chunker(embedding_service, analysis_service)
 path_encoding_service = load_path_encoding_service()
@@ -1307,16 +1307,18 @@ else:
                  node_betweenness = graph_metrics.get('betweenness', {})
                  # --- UPDATE SESSION STATE KNOWLEDGE GRAPH INSTANCE ---
                  if semantic_graph is not None:
-                     if 'knowledge_graph_instance' in st.session_state and st.session_state.knowledge_graph_instance is not None:
-                         st.session_state.knowledge_graph_instance.graph = semantic_graph # Assign the nx.Graph
-                         st.session_state.knowledge_graph_instance.nodes = {} # Clear old model nodes
-                         st.session_state.knowledge_graph_instance.edges = {} # Clear old model edges
+                     if 'knowledge_graph_instance' in st.session_state and st.session_state['knowledge_graph_instance'] is not None:
+                         kg_instance = st.session_state['knowledge_graph_instance'] # Get the object
+                         kg_instance.graph = semantic_graph  # Modify the object
+                         kg_instance.nodes = {}              # Modify the object
+                         kg_instance.edges = {}              # Modify the object
+                         # No need to write it back if KnowledgeGraph is mutable
                          st.write("DEBUG: Updated knowledge_graph_instance in session state.")
                      else:
                          st.warning("DEBUG: knowledge_graph_instance not found in session state to update.")
             else:
                  st.error("DEBUG: Graph generation service returned unexpected data format.")
-        if semantic_graph:
+        if semantic_graph: # This should be semantic_graph_obj if using the refactored variable names
             if semantic_graph.number_of_nodes() > 0:
                 st.success(f"Generated graph with {semantic_graph.number_of_nodes()} nodes and {semantic_graph.number_of_edges()} edges.")
                 try:

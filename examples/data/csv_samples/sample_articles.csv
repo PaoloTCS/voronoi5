@@ -1,0 +1,5 @@
+article_id,publication_date,category,headline,abstract,full_text
+A001,2023-04-01,Tech,New AI Breakthrough,Scientists announce a new AI model that can learn with less data.,This model uses a novel architecture to achieve state-of-the-art results on several benchmarks while requiring significantly less training data than previous models.
+A002,2023-04-05,Science,Mars Rover Discovery,NASA's rover finds intriguing organic molecules on Mars.,The discovery has significant implications for the search for past life on the Red Planet, though scientists caution that these molecules could also have non-biological origins.
+A003,2023-04-10,Business,Market Hits Record High,Stock market reaches new peak amidst positive economic news.,Analysts attribute the surge to strong corporate earnings and optimistic investor sentiment following recent government policies.
+A004,2023-04-12,Tech,Cybersecurity Warning,Experts warn of a new phishing scam targeting online shoppers.,The scam involves fake login pages for popular e-commerce sites and aims to steal credit card information. Users are advised to be vigilant.
